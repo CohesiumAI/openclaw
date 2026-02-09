@@ -292,7 +292,7 @@ function handleGatewayEventUnsafe(host: GatewayHost, evt: GatewayEventFrame) {
     if (state === "error") {
       // Don't reload history immediately — handleChatEvent already added an
       // inline error message. Reloading would overwrite it before the user sees it.
-      console.log("[gateway:chat] error state received, skipping immediate history reload");
+      // Error state — handleChatEvent already added inline error, skip reload
     }
     if (state === "final" || isCrossSession) {
       // Always refresh session list so sidebar reflects updatedAt / new sessions

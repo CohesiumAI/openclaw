@@ -101,11 +101,6 @@ export function extractText(message: unknown): string | null {
   if (typeof content === "string") {
     const processed = role === "assistant" ? stripThinkingTags(content) : stripEnvelope(content);
     const result = sanitizeDisplayText(processed);
-    if (role === "user" && processed.length !== result.length) {
-      console.log(
-        `[extractText] user string: before=${processed.length} after=${result.length} delta=${processed.length - result.length}`,
-      );
-    }
     return result;
   }
   if (Array.isArray(content)) {
@@ -122,11 +117,6 @@ export function extractText(message: unknown): string | null {
       const joined = parts.join("\n");
       const processed = role === "assistant" ? stripThinkingTags(joined) : stripEnvelope(joined);
       const result = sanitizeDisplayText(processed);
-      if (role === "user" && processed.length !== result.length) {
-        console.log(
-          `[extractText] user array(${parts.length}): before=${processed.length} after=${result.length} delta=${processed.length - result.length}`,
-        );
-      }
       return result;
     }
   }

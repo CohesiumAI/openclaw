@@ -107,13 +107,9 @@ function mergeOptimisticImages(optimistic: unknown[], fetched: unknown[]): unkno
         attachments: Array.isArray(m._attachments) ? m._attachments : undefined,
         textParts,
       });
-      console.log(
-        `[chat:merge] optimistic key="${key.slice(0, 80)}" images=${imageBlocks.length} files=${fileBlocks.length}`,
-      );
     }
   }
   if (extraByText.size === 0) {
-    console.log("[chat:merge] no optimistic extras to merge");
     return fetched;
   }
 
@@ -130,7 +126,6 @@ function mergeOptimisticImages(optimistic: unknown[], fetched: unknown[]): unkno
     } else if (Array.isArray(content)) {
       // Already has images? Don't duplicate
       if (content.some((b) => (b as Record<string, unknown>)?.type === "image")) {
-        console.log("[chat:merge] fetched msg already has images, skipping");
         return msg;
       }
       rawText = content
@@ -141,7 +136,6 @@ function mergeOptimisticImages(optimistic: unknown[], fetched: unknown[]): unkno
     }
     // Strip gateway-injected placeholders + file content before matching
     const text = stripFileContentForKey(stripImagePlaceholders(rawText));
-    console.log(`[chat:merge] fetched key="${text.slice(0, 80)}" (raw len=${rawText.length})`);
     let extra = extraByText.get(text);
     // Fallback: gateway may replace user text entirely with [media attached:] content,
     // leaving the stripped key empty. Match the first unmatched optimistic with files.
@@ -150,9 +144,6 @@ function mergeOptimisticImages(optimistic: unknown[], fetched: unknown[]): unkno
         if (v.fileBlocks.length > 0) {
           extra = v;
           extraByText.delete(k);
-          console.log(
-            `[chat:merge] FALLBACK match on empty key — optimistic key="${k.slice(0, 80)}" files=${v.fileBlocks.length}`,
-          );
           // Reconstruct content: use optimistic text (gateway lost it) + file blocks
           const rebuilt: unknown[] = [];
           const originalText = v.textParts.join("\n").trim();
@@ -168,12 +159,8 @@ function mergeOptimisticImages(optimistic: unknown[], fetched: unknown[]): unkno
       }
     }
     if (!extra) {
-      console.log("[chat:merge] no match for fetched message");
       return msg;
     }
-    console.log(
-      `[chat:merge] MATCH — injecting ${extra.imageBlocks.length} image(s), ${extra.fileBlocks.length} file(s)`,
-    );
     extraByText.delete(text); // consume — prevent duplicate injection
     let contentArray =
       typeof content === "string"
@@ -198,9 +185,6 @@ export async function loadChatHistory(state: ChatState) {
   if (!state.client || !state.connected) {
     return;
   }
-  console.log(
-    `[chat:loadHistory] start session=${state.sessionKey} msgs=${state.chatMessages.length} runId=${state.chatRunId}`,
-  );
   // Only show loading indicator on initial load (empty chat).
   // Post-run reloads are background refreshes — no visible loading flash.
   state.chatLoading = state.chatMessages.length === 0;
@@ -226,39 +210,6 @@ export async function loadChatHistory(state: ChatState) {
       return;
     }
     const fetched = Array.isArray(res.messages) ? res.messages : [];
-    console.log(
-      `[chat:loadHistory] fetched=${fetched.length} current=${state.chatMessages.length}`,
-    );
-    // Dump structure of each fetched message for debugging
-    for (let i = 0; i < fetched.length; i++) {
-      const fm = fetched[i] as Record<string, unknown>;
-      const contentType = typeof fm.content;
-      let blockSummary = "";
-      if (Array.isArray(fm.content)) {
-        blockSummary = (fm.content as Array<Record<string, unknown>>)
-          .map((b) => {
-            if (b.type === "image") {
-              const src = b.source as Record<string, unknown> | undefined;
-              return `image(src.type=${src?.type} src.media_type=${src?.media_type} data.len=${typeof src?.data === "string" ? (src.data as string).length : "N/A"})`;
-            }
-            if (b.type === "text") {
-              return `text(${(b.text as string)?.slice(0, 40)})`;
-            }
-            return `${b.type ?? "unknown"}`;
-          })
-          .join(", ");
-      } else if (contentType === "string") {
-        blockSummary = `str(${(fm.content as string).slice(0, 60)})`;
-      } else {
-        blockSummary = `raw=${fm.content === null ? "null" : JSON.stringify(fm.content)?.slice(0, 80)}`;
-      }
-      const extraKeys = Object.keys(fm)
-        .filter((k) => k !== "role" && k !== "content")
-        .join(",");
-      console.log(
-        `[chat:loadHistory] msg[${i}] role=${fm.role} contentType=${contentType} keys=[${extraKeys}] blocks=[${blockSummary}]`,
-      );
-    }
     // Guard: don't overwrite optimistic local messages with fewer backend
     // messages (protects user message + [Cancelled] trace after fast abort).
     // Trust the backend only when it has at least as many messages.
@@ -266,9 +217,6 @@ export async function loadChatHistory(state: ChatState) {
       // Re-inject image content blocks from optimistic messages that the
       // gateway transcript doesn't persist (images go to model separately).
       state.chatMessages = mergeOptimisticImages(state.chatMessages, fetched);
-      console.log(`[chat:loadHistory] merged, final msgs=${state.chatMessages.length}`);
-    } else {
-      console.log("[chat:loadHistory] skipped merge (fewer fetched than local)");
     }
     state.chatThinkingLevel = res.thinkingLevel ?? null;
   } catch (err) {
@@ -297,9 +245,7 @@ export async function sendChatMessage(
   }
   const msg = message.trim();
   const hasAttachments = attachments && attachments.length > 0;
-  console.log(`[chat:send] msg="${msg.slice(0, 60)}" attachments=${attachments?.length ?? 0}`);
   if (!msg && !hasAttachments) {
-    console.log("[chat:send] nothing to send");
     return null;
   }
 
@@ -313,9 +259,6 @@ export async function sendChatMessage(
   // Add attachment previews to the message for display
   if (hasAttachments) {
     for (const att of attachments) {
-      console.log(
-        `[chat:send] attachment: ${att.fileName} mime=${att.mimeType} size=${att.dataUrl.length}`,
-      );
       if (att.mimeType.startsWith("image/")) {
         contentBlocks.push({
           type: "image",
@@ -368,9 +311,6 @@ export async function sendChatMessage(
     : undefined;
 
   try {
-    console.log(
-      `[chat:send] calling chat.send runId=${runId} apiAttachments=${apiAttachments?.length ?? 0}`,
-    );
     await state.client.request("chat.send", {
       sessionKey: state.sessionKey,
       message: msg,
@@ -379,7 +319,6 @@ export async function sendChatMessage(
       attachments: apiAttachments,
       skillFilter,
     });
-    console.log(`[chat:send] ACK received, runId=${runId}`);
     return runId;
   } catch (err) {
     const error = String(err);
@@ -436,10 +375,6 @@ export function handleChatEvent(state: ChatState, payload?: ChatEventPayload) {
     return null;
   }
 
-  console.log(
-    `[chat:event] state=${payload.state} runId=${payload.runId} sessionKey=${payload.sessionKey} error=${payload.errorMessage ?? "(none)"}`,
-  );
-
   if (payload.state === "delta") {
     const next = extractText(payload.message);
     if (typeof next === "string") {
@@ -449,7 +384,6 @@ export function handleChatEvent(state: ChatState, payload?: ChatEventPayload) {
       }
     }
   } else if (payload.state === "final") {
-    console.log("[chat:event] FINAL — clearing run state");
     // Commit streamed text as a regular assistant message so the response
     // stays visible while loadChatHistory refreshes in the background.
     if (state.chatStream?.trim()) {
