@@ -41,13 +41,72 @@ export function stripEnvelope(text: string): string {
   return text.slice(match[0].length);
 }
 
+/** Strip gateway-injected image placeholder tags from displayed text */
+function stripImagePlaceholders(text: string): string {
+  return text.replace(/\s*\[Image attached:[^\]]*\]/g, "").trim();
+}
+
+/** Strip directive tags like [[reply_to_current]], [[reply_to:<id>]], [[audio_as_voice]] */
+function stripDirectiveTags(text: string): string {
+  return text
+    .replace(/\[\[\s*(?:reply_to_current|reply_to\s*:\s*[^\]\n]+|audio_as_voice)\s*\]\]/gi, "")
+    .trim();
+}
+
+/**
+ * Strip gateway-injected inlined file content from user messages.
+ *
+ * The gateway appends file blocks at the END of the user text, separated by
+ * \n\n. Formats:
+ *   [File: name]\n```lang\n...content...\n```          (old, 3-backtick)
+ *   [File: name]\n````lang\n...content...\n````        (new, dynamic backtick)
+ *   [File attached: name (mime, size)]                  (binary placeholder)
+ *   <file name="..." mime="...">...content...</file>   (media understanding)
+ *
+ * Robust approach: strip everything from the first file/attachment marker
+ * (preceded by \n\n or at start) to the end of the text. This avoids all
+ * fence-parsing edge cases with nested code blocks.
+ */
+function stripInlinedFileContent(text: string): string {
+  let result = text;
+  // Phase 1: strip preamble markers injected BEFORE user text by the gateway
+  result = result.replace(/\[media attached(?:\s+\d+\/\d+)?:\s*[^\]]*\]/g, "");
+  result = result.replace(/\[media attached:\s*\d+\s+files\]/g, "");
+  result = result.replace(/\[Image attached:\s*[^\]]*\]/g, "");
+  result = result.replace(
+    /To send an image back, prefer the message tool \(media\/path\/filePath\)\.[^\n]*/g,
+    "",
+  );
+  result = result.replace(/\n{3,}/g, "\n\n").trim();
+
+  // Phase 2: truncate from first file/content marker to end.
+  // User text always precedes these markers; file content follows them.
+  // This avoids fragile parsing of file content (backticks, XML, etc.).
+  const marker = /\[File(?:\s+attached)?:\s*[^\]]+\]|<file\s+/.exec(result);
+  if (marker) {
+    result = result.slice(0, marker.index).trim();
+  }
+  return result;
+}
+
+/** Compose all display-level sanitization: image placeholders, directive tags, inlined file content */
+function sanitizeDisplayText(text: string): string {
+  return stripInlinedFileContent(stripDirectiveTags(stripImagePlaceholders(text)));
+}
+
 export function extractText(message: unknown): string | null {
   const m = message as Record<string, unknown>;
   const role = typeof m.role === "string" ? m.role : "";
   const content = m.content;
   if (typeof content === "string") {
     const processed = role === "assistant" ? stripThinkingTags(content) : stripEnvelope(content);
-    return processed;
+    const result = sanitizeDisplayText(processed);
+    if (role === "user" && processed.length !== result.length) {
+      console.log(
+        `[extractText] user string: before=${processed.length} after=${result.length} delta=${processed.length - result.length}`,
+      );
+    }
+    return result;
   }
   if (Array.isArray(content)) {
     const parts = content
@@ -62,12 +121,22 @@ export function extractText(message: unknown): string | null {
     if (parts.length > 0) {
       const joined = parts.join("\n");
       const processed = role === "assistant" ? stripThinkingTags(joined) : stripEnvelope(joined);
-      return processed;
+      const result = sanitizeDisplayText(processed);
+      if (role === "user" && processed.length !== result.length) {
+        console.log(
+          `[extractText] user array(${parts.length}): before=${processed.length} after=${result.length} delta=${processed.length - result.length}`,
+        );
+      }
+      return result;
     }
   }
   if (typeof m.text === "string") {
     const processed = role === "assistant" ? stripThinkingTags(m.text) : stripEnvelope(m.text);
-    return processed;
+    return sanitizeDisplayText(processed);
+  }
+  // Fallback: assistant messages may have errorMessage when content is empty
+  if (role === "assistant" && typeof m.errorMessage === "string" && m.errorMessage) {
+    return `Error: ${m.errorMessage}`;
   }
   return null;
 }

@@ -77,6 +77,7 @@ import {
   type EmbeddedPiQueueHandle,
   setActiveEmbeddedRun,
 } from "../runs.js";
+import { buildLinkedSessionsContext } from "../linked-sessions.js";
 import { buildEmbeddedSandboxInfo } from "../sandbox-info.js";
 import { prewarmSessionFile, trackSessionManagerAccess } from "../session-manager-cache.js";
 import { prepareSessionManagerForRun } from "../session-manager-init.js";
@@ -196,11 +197,21 @@ export async function runEmbeddedAttempt(
         sessionId: params.sessionId,
         warn: makeBootstrapWarn({ sessionLabel, warn: (message) => log.warn(message) }),
       });
-    const workspaceNotes = hookAdjustedBootstrapFiles.some(
+    const baseNotes = hookAdjustedBootstrapFiles.some(
       (file) => file.name === DEFAULT_BOOTSTRAP_FILENAME && !file.missing,
     )
       ? ["Reminder: commit your changes in this workspace after edits."]
-      : undefined;
+      : [];
+
+    // Inject context from sessions linked via /joinchat
+    const linkedNotes = buildLinkedSessionsContext({
+      sessionKey: params.sessionKey,
+      config: params.config,
+    });
+    const workspaceNotes =
+      baseNotes.length > 0 || linkedNotes.length > 0
+        ? [...baseNotes, ...linkedNotes]
+        : undefined;
 
     const agentDir = params.agentDir ?? resolveOpenClawAgentDir();
 

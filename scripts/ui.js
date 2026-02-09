@@ -11,7 +11,9 @@ const uiDir = path.join(repoRoot, "ui");
 
 function usage() {
   // keep this tiny; it's invoked from npm scripts too
-  process.stderr.write("Usage: node scripts/ui.js <install|dev|build|test> [...args]\n");
+  process.stderr.write(
+    "Usage: node scripts/ui.js <install|dev|dev-v2|build|build-v1|build-v2|test> [...args]\n",
+  );
 }
 
 function which(cmd) {
@@ -50,11 +52,11 @@ function resolveRunner() {
   return null;
 }
 
-function run(cmd, args) {
+function run(cmd, args, envOverride) {
   const child = spawn(cmd, args, {
     cwd: uiDir,
     stdio: "inherit",
-    env: process.env,
+    env: envOverride ?? process.env,
     shell: process.platform === "win32",
   });
   child.on("exit", (code, signal) => {
@@ -108,12 +110,13 @@ if (!runner) {
   process.exit(1);
 }
 
+const isV2Action = action === "build-v2" || action === "dev-v2";
 const script =
   action === "install"
     ? null
-    : action === "dev"
+    : action === "dev" || action === "dev-v2"
       ? "dev"
-      : action === "build"
+      : action === "build" || action === "build-v2" || action === "build-v1"
         ? "build"
         : action === "test"
           ? "test"
@@ -124,14 +127,34 @@ if (action !== "install" && !script) {
   process.exit(2);
 }
 
+// V2 builds/dev inject OPENCLAW_CONTROL_UI_V2=1 so vite uses /v2/ base + dist/control-ui-v2
+const runEnv = isV2Action ? { ...process.env, OPENCLAW_CONTROL_UI_V2: "1" } : process.env;
+
 if (action === "install") {
   run(runner.cmd, ["install", ...rest]);
+} else if (action === "build-v1") {
+  // Build V1 UI from main branch source (git checkout → build → restore)
+  if (!depsInstalled("build")) {
+    runSync(runner.cmd, ["install", "--prod"], { ...process.env, NODE_ENV: "production" });
+  }
+  try {
+    spawnSync("git", ["checkout", "main", "--", "ui/src", "ui/index.html"], {
+      cwd: repoRoot,
+      stdio: "inherit",
+    });
+    runSync(runner.cmd, ["run", "build", ...rest], process.env);
+  } finally {
+    spawnSync("git", ["checkout", "HEAD", "--", "ui/src", "ui/index.html"], {
+      cwd: repoRoot,
+      stdio: "inherit",
+    });
+  }
 } else {
+  const isBuild = action === "build" || action === "build-v2";
   if (!depsInstalled(action === "test" ? "test" : "build")) {
-    const installEnv =
-      action === "build" ? { ...process.env, NODE_ENV: "production" } : process.env;
-    const installArgs = action === "build" ? ["install", "--prod"] : ["install"];
+    const installEnv = isBuild ? { ...runEnv, NODE_ENV: "production" } : runEnv;
+    const installArgs = isBuild ? ["install", "--prod"] : ["install"];
     runSync(runner.cmd, installArgs, installEnv);
   }
-  run(runner.cmd, ["run", script, ...rest]);
+  run(runner.cmd, ["run", script, ...rest], runEnv);
 }

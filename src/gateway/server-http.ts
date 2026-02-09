@@ -23,6 +23,8 @@ import { authorizeGatewayConnect, isLocalDirectRequest, type ResolvedGatewayAuth
 import {
   handleControlUiAvatarRequest,
   handleControlUiHttpRequest,
+  handleControlUiV2AvatarRequest,
+  handleControlUiV2HttpRequest,
   type ControlUiRootState,
 } from "./control-ui.js";
 import { applyHookMappings } from "./hooks-mapping.js";
@@ -44,6 +46,7 @@ import { resolveGatewayClientIp } from "./net.js";
 import { handleOpenAiHttpRequest } from "./openai-http.js";
 import { handleOpenResponsesHttpRequest } from "./openresponses-http.js";
 import { handleToolsInvokeHttpRequest } from "./tools-invoke-http.js";
+import { handleTtsHttpRequest } from "./tts-http.js";
 
 type SubsystemLogger = ReturnType<typeof createSubsystemLogger>;
 
@@ -279,6 +282,7 @@ export function createGatewayHttpServer(opts: {
   controlUiEnabled: boolean;
   controlUiBasePath: string;
   controlUiRoot?: ControlUiRootState;
+  controlUiV2Root?: ControlUiRootState;
   openAiChatCompletionsEnabled: boolean;
   openResponsesEnabled: boolean;
   openResponsesConfig?: import("../config/types.gateway.js").GatewayHttpResponsesConfig;
@@ -293,6 +297,7 @@ export function createGatewayHttpServer(opts: {
     controlUiEnabled,
     controlUiBasePath,
     controlUiRoot,
+    controlUiV2Root,
     openAiChatCompletionsEnabled,
     openResponsesEnabled,
     openResponsesConfig,
@@ -332,6 +337,10 @@ export function createGatewayHttpServer(opts: {
         return;
       }
       if (handlePluginRequest && (await handlePluginRequest(req, res))) {
+        return;
+      }
+      // Serve TTS audio files (same-origin, no extra auth needed)
+      if (handleTtsHttpRequest(req, res)) {
         return;
       }
       if (openResponsesEnabled) {
@@ -377,6 +386,23 @@ export function createGatewayHttpServer(opts: {
         }
       }
       if (controlUiEnabled) {
+        // V2 must be checked first — its /v2 prefix is more specific than the V1 catch-all
+        if (
+          handleControlUiV2AvatarRequest(req, res, {
+            resolveAvatar: (agentId) => resolveAgentAvatar(configSnapshot, agentId),
+          })
+        ) {
+          return;
+        }
+        if (
+          handleControlUiV2HttpRequest(req, res, {
+            config: configSnapshot,
+            root: controlUiV2Root,
+          })
+        ) {
+          return;
+        }
+        // V1 (default basePath, catches remaining paths)
         if (
           handleControlUiAvatarRequest(req, res, {
             basePath: controlUiBasePath,

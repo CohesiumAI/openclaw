@@ -266,14 +266,16 @@ export async function statusAllCommand(
         : null;
 
     const controlUiEnabled = cfg.gateway?.controlUi?.enabled ?? true;
-    const dashboard = controlUiEnabled
+    const controlUiLinks = controlUiEnabled
       ? resolveControlUiLinks({
           port,
           bind: cfg.gateway?.bind,
           customBindHost: cfg.gateway?.customBindHost,
           basePath: cfg.gateway?.controlUi?.basePath,
-        }).httpUrl
+        })
       : null;
+    const dashboard = controlUiLinks?.httpUrl ?? null;
+    const dashboardV2 = controlUiLinks?.httpUrlV2 ?? null;
 
     const updateLine = (() => {
       if (update.installKind === "git" && update.git) {
@@ -387,6 +389,9 @@ export async function statusAllCommand(
       dashboard
         ? { Item: "Dashboard", Value: dashboard }
         : { Item: "Dashboard", Value: "disabled" },
+      dashboardV2
+        ? { Item: "Dashboard V2", Value: dashboardV2 }
+        : { Item: "Dashboard V2", Value: "disabled" },
       {
         Item: "Tailscale",
         Value:

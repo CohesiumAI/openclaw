@@ -75,6 +75,50 @@ describe("handleChatEvent", () => {
     expect(state.chatStreamStartedAt).toBe(123);
   });
 
+  it("adds cancellation trace on aborted (no partial stream)", () => {
+    const state = createState({
+      sessionKey: "main",
+      chatRunId: "run-1",
+      chatStream: "",
+      chatStreamStartedAt: 100,
+      chatMessages: [{ role: "user", content: [{ type: "text", text: "Hello" }] }],
+    });
+    const payload: ChatEventPayload = {
+      runId: "run-1",
+      sessionKey: "main",
+      state: "aborted",
+    };
+    expect(handleChatEvent(state, payload)).toBe("aborted");
+    expect(state.chatRunId).toBe(null);
+    expect(state.chatStream).toBe(null);
+    expect(state.chatMessages).toHaveLength(2);
+    const last = state.chatMessages[1] as Record<string, unknown>;
+    expect(last.role).toBe("assistant");
+    const content = last.content as Array<{ text: string }>;
+    expect(content[0].text).toBe("_[Cancelled]_");
+  });
+
+  it("preserves partial stream in cancellation trace", () => {
+    const state = createState({
+      sessionKey: "main",
+      chatRunId: "run-1",
+      chatStream: "Partial reply",
+      chatStreamStartedAt: 100,
+      chatMessages: [{ role: "user", content: [{ type: "text", text: "Hello" }] }],
+    });
+    const payload: ChatEventPayload = {
+      runId: "run-1",
+      sessionKey: "main",
+      state: "aborted",
+    };
+    expect(handleChatEvent(state, payload)).toBe("aborted");
+    expect(state.chatMessages).toHaveLength(2);
+    const last = state.chatMessages[1] as Record<string, unknown>;
+    const content = last.content as Array<{ text: string }>;
+    expect(content[0].text).toContain("Partial reply");
+    expect(content[0].text).toContain("_[Cancelled]_");
+  });
+
   it("processes final from own run and clears state", () => {
     const state = createState({
       sessionKey: "main",

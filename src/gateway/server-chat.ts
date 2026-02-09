@@ -2,6 +2,7 @@ import { normalizeVerboseLevel } from "../auto-reply/thinking.js";
 import { loadConfig } from "../config/config.js";
 import { type AgentEventPayload, getAgentRunContext } from "../infra/agent-events.js";
 import { resolveHeartbeatVisibility } from "../infra/heartbeat-visibility.js";
+import { parseInlineDirectives } from "../utils/directive-tags.js";
 import { loadSessionEntry } from "./session-utils.js";
 import { formatForLog } from "./ws-log.js";
 
@@ -227,7 +228,9 @@ export function createAgentEventHandler({
   clearAgentRunContext,
   toolEventRecipients,
 }: AgentEventHandlerOptions) {
-  const emitChatDelta = (sessionKey: string, clientRunId: string, seq: number, text: string) => {
+  const emitChatDelta = (sessionKey: string, clientRunId: string, seq: number, rawText: string) => {
+    // Strip directive tags (e.g. [[reply_to_current]]) before sending to web UI
+    const text = parseInlineDirectives(rawText, { stripReplyTags: true }).text;
     chatRunState.buffers.set(clientRunId, text);
     const now = Date.now();
     const last = chatRunState.deltaSentAt.get(clientRunId) ?? 0;

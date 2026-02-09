@@ -277,6 +277,7 @@ export async function finalizeOnboardingWizard(
       settings.authMode === "token" && settings.gatewayToken
         ? `Web UI (with token): ${authedUrl}`
         : undefined,
+      `Web UI V2: ${links.httpUrlV2}`,
       `Gateway WS: ${links.wsUrl}`,
       gatewayStatusLine,
       "Docs: https://docs.openclaw.ai/web/control-ui",

@@ -101,7 +101,10 @@
     "tui": "node scripts/run-node.mjs tui",
     "tui:dev": "OPENCLAW_PROFILE=dev CLAWDBOT_PROFILE=dev node scripts/run-node.mjs --dev tui",
     "ui:build": "node scripts/ui.js build",
+    "ui:build-v1": "node scripts/ui.js build-v1",
+    "ui:build-v2": "node scripts/ui.js build-v2",
     "ui:dev": "node scripts/ui.js dev",
+    "ui:dev-v2": "node scripts/ui.js dev-v2",
     "ui:install": "node scripts/ui.js install"
   },
   "dependencies": {

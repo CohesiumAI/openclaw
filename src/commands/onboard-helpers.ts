@@ -439,7 +439,7 @@ export function resolveControlUiLinks(params: {
   bind?: "auto" | "lan" | "loopback" | "custom" | "tailnet";
   customBindHost?: string;
   basePath?: string;
-}): { httpUrl: string; wsUrl: string } {
+}): { httpUrl: string; wsUrl: string; httpUrlV2: string } {
   const port = params.port;
   const bind = params.bind ?? "loopback";
   const customBindHost = params.customBindHost?.trim();
@@ -462,5 +462,6 @@ export function resolveControlUiLinks(params: {
   return {
     httpUrl: `http://${host}:${port}${uiPath}`,
     wsUrl: `ws://${host}:${port}${wsPath}`,
+    httpUrlV2: `http://${host}:${port}/v2/`,
   };
 }

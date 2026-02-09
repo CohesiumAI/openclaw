@@ -1,11 +1,14 @@
 import { CURRENT_SESSION_VERSION, SessionManager } from "@mariozechner/pi-coding-agent";
+import { randomUUID } from "node:crypto";
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import type { MsgContext } from "../../auto-reply/templating.js";
 import type { GatewayRequestContext, GatewayRequestHandlers } from "./types.js";
 import { resolveSessionAgentId } from "../../agents/agent-scope.js";
 import { resolveThinkingDefault } from "../../agents/model-selection.js";
 import { resolveAgentTimeoutMs } from "../../agents/timeout.js";
+import { listChatCommandsForConfig } from "../../auto-reply/commands-registry.js";
 import { dispatchInboundMessage } from "../../auto-reply/dispatch.js";
 import { createReplyDispatcher } from "../../auto-reply/reply/reply-dispatcher.js";
 import { createReplyPrefixOptions } from "../../channels/reply-prefix.js";
@@ -28,6 +31,7 @@ import {
   validateChatHistoryParams,
   validateChatInjectParams,
   validateChatSendParams,
+  validateChatTruncateParams,
 } from "../protocol/index.js";
 import { getMaxChatHistoryMessagesBytes } from "../server-constants.js";
 import {
@@ -339,6 +343,7 @@ export const chatHandlers: GatewayRequestHandlers = {
         content?: unknown;
       }>;
       timeoutMs?: number;
+      skillFilter?: string[];
       idempotencyKey: string;
     };
     const stopCommand = isChatStopCommandText(p.message);
@@ -371,14 +376,33 @@ export const chatHandlers: GatewayRequestHandlers = {
     }
     let parsedMessage = p.message;
     let parsedImages: ChatImageContent[] = [];
+    // Temp files saved for binary attachments — cleaned up after dispatch
+    const binaryTempFiles: string[] = [];
+    const binaryMediaPaths: string[] = [];
+    const binaryMediaTypes: string[] = [];
     if (normalizedAttachments.length > 0) {
       try {
         const parsed = await parseMessageWithAttachments(p.message, normalizedAttachments, {
-          maxBytes: 5_000_000,
+          maxBytes: 25_000_000,
           log: context.logGateway,
         });
         parsedMessage = parsed.message;
         parsedImages = parsed.images;
+        // Save binary attachments (PDF, DOCX, etc.) to temp files for media understanding
+        for (const bf of parsed.binaryFiles) {
+          try {
+            const ext = path.extname(bf.fileName) || "";
+            const tmpPath = path.join(os.tmpdir(), `openclaw-chat-${randomUUID()}${ext}`);
+            fs.writeFileSync(tmpPath, Buffer.from(bf.base64, "base64"));
+            binaryTempFiles.push(tmpPath);
+            binaryMediaPaths.push(tmpPath);
+            binaryMediaTypes.push(bf.mimeType);
+          } catch (err) {
+            context.logGateway.warn(
+              `chat.send: failed to save binary attachment ${bf.fileName}: ${String(err)}`,
+            );
+          }
+        }
       } catch (err) {
         respond(false, undefined, errorShape(ErrorCodes.INVALID_REQUEST, String(err)));
         return;
@@ -487,6 +511,15 @@ export const chatHandlers: GatewayRequestHandlers = {
         SenderName: clientInfo?.displayName,
         SenderUsername: clientInfo?.displayName,
         GatewayClientScopes: client?.connect?.scopes,
+        // Binary attachments saved to temp files for media understanding (PDF, DOCX, etc.)
+        ...(binaryMediaPaths.length > 0 && {
+          MediaPath: binaryMediaPaths[0],
+          MediaUrl: binaryMediaPaths[0],
+          MediaType: binaryMediaTypes[0],
+          MediaPaths: binaryMediaPaths,
+          MediaUrls: binaryMediaPaths,
+          MediaTypes: binaryMediaTypes,
+        }),
       };
 
       const agentId = resolveSessionAgentId({
@@ -538,6 +571,7 @@ export const chatHandlers: GatewayRequestHandlers = {
             }
           },
           onModelSelected,
+          skillFilter: p.skillFilter,
         },
       })
         .then(() => {
@@ -611,6 +645,14 @@ export const chatHandlers: GatewayRequestHandlers = {
         })
         .finally(() => {
           context.chatAbortControllers.delete(clientRunId);
+          // Clean up temp files saved for binary attachments
+          for (const tmpPath of binaryTempFiles) {
+            try {
+              fs.unlinkSync(tmpPath);
+            } catch {
+              // Best-effort cleanup
+            }
+          }
         });
     } catch (err) {
       const error = errorShape(ErrorCodes.UNAVAILABLE, String(err));
@@ -690,5 +732,85 @@ export const chatHandlers: GatewayRequestHandlers = {
     context.nodeSendToSession(rawSessionKey, "chat", chatPayload);
 
     respond(true, { ok: true, messageId: appended.messageId });
+  },
+  "chat.commands": ({ respond }) => {
+    const { cfg } = loadSessionEntry("main");
+    const commands = listChatCommandsForConfig(cfg);
+    const items = commands
+      .filter((cmd) => cmd.textAliases.length > 0)
+      .map((cmd) => ({
+        name: cmd.textAliases[0],
+        description: cmd.description,
+        category: cmd.category,
+        acceptsArgs: Boolean(cmd.acceptsArgs),
+      }));
+    respond(true, { commands: items });
+  },
+  "chat.truncate": ({ params, respond }) => {
+    if (!validateChatTruncateParams(params)) {
+      respond(
+        false,
+        undefined,
+        errorShape(
+          ErrorCodes.INVALID_REQUEST,
+          `invalid chat.truncate params: ${formatValidationErrors(validateChatTruncateParams.errors)}`,
+        ),
+      );
+      return;
+    }
+    const { sessionKey, afterIndex } = params as { sessionKey: string; afterIndex: number };
+    const { storePath, entry } = loadSessionEntry(sessionKey);
+    const sessionId = entry?.sessionId;
+    if (!sessionId || !storePath) {
+      respond(false, undefined, errorShape(ErrorCodes.INVALID_REQUEST, "session not found"));
+      return;
+    }
+    const transcriptPath = entry?.sessionFile
+      ? entry.sessionFile
+      : path.join(path.dirname(storePath), `${sessionId}.jsonl`);
+    if (!fs.existsSync(transcriptPath)) {
+      respond(
+        false,
+        undefined,
+        errorShape(ErrorCodes.INVALID_REQUEST, "transcript file not found"),
+      );
+      return;
+    }
+    try {
+      const raw = fs.readFileSync(transcriptPath, "utf-8");
+      const lines = raw.split(/\r?\n/);
+      const kept: string[] = [];
+      let messageCount = 0;
+      for (const line of lines) {
+        if (!line.trim()) {
+          continue;
+        }
+        let parsed: Record<string, unknown> | null = null;
+        try {
+          parsed = JSON.parse(line);
+        } catch {
+          kept.push(line);
+          continue;
+        }
+        if (parsed?.message) {
+          if (messageCount >= afterIndex) {
+            break;
+          }
+          messageCount++;
+        }
+        kept.push(line);
+      }
+      fs.writeFileSync(transcriptPath, kept.map((l) => `${l}\n`).join(""), "utf-8");
+      respond(true, { ok: true, remaining: messageCount });
+    } catch (err) {
+      respond(
+        false,
+        undefined,
+        errorShape(
+          ErrorCodes.UNAVAILABLE,
+          `truncate failed: ${err instanceof Error ? err.message : String(err)}`,
+        ),
+      );
+    }
   },
 };

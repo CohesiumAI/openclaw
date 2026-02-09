@@ -1,6 +1,7 @@
 import { html, nothing } from "lit";
 import { ref } from "lit/directives/ref.js";
 import { repeat } from "lit/directives/repeat.js";
+import type { SlashCommandEntry } from "../controllers/chat-commands.ts";
 import type { SessionsListResult } from "../types.ts";
 import type { ChatItem, MessageGroup } from "../types/chat-types.ts";
 import type { ChatAttachment, ChatQueueItem } from "../ui-types.ts";
@@ -9,6 +10,7 @@ import {
   renderReadingIndicatorGroup,
   renderStreamingGroup,
 } from "../chat/grouped-render.ts";
+import { extractTextCached } from "../chat/message-extract.ts";
 import { normalizeMessage, normalizeRoleForGrouping } from "../chat/message-normalizer.ts";
 import { icons } from "../icons.ts";
 import { renderMarkdownSidebar } from "./markdown-sidebar.ts";
@@ -33,6 +35,7 @@ export type ChatProps = {
   toolMessages: unknown[];
   stream: string | null;
   streamStartedAt: number | null;
+  activeToolName?: string | null;
   assistantAvatarUrl?: string | null;
   draft: string;
   queue: ChatQueueItem[];
@@ -53,6 +56,20 @@ export type ChatProps = {
   // Image attachments
   attachments?: ChatAttachment[];
   onAttachmentsChange?: (attachments: ChatAttachment[]) => void;
+  // Model selector (native <select>)
+  modelsCatalog?: Array<{ id: string; name?: string; provider?: string }>;
+  currentModel?: string | null;
+  onModelChange?: (modelId: string) => void;
+  // Skills popover
+  skills?: Array<{ name: string; emoji?: string; enabled: boolean }>;
+  skillsPopoverOpen?: boolean;
+  onToggleSkillsPopover?: () => void;
+  onToggleSkill?: (name: string) => void;
+  // Linked chats popover
+  linkedChats?: Array<{ key: string; title: string; linked: boolean }>;
+  chatsPopoverOpen?: boolean;
+  onToggleChatsPopover?: () => void;
+  onToggleChat?: (key: string) => void;
   // Scroll control
   showNewMessages?: boolean;
   onScrollToBottom?: () => void;
@@ -68,6 +85,29 @@ export type ChatProps = {
   onCloseSidebar?: () => void;
   onSplitRatioChange?: (ratio: number) => void;
   onChatScroll?: (event: Event) => void;
+  // Message actions
+  onRegenerate?: (startIndex: number) => void;
+  onReadAloud?: (text: string) => void;
+  ttsPlaying?: boolean;
+  onEditMessage?: (text: string, startIndex: number) => void;
+  onResendMessage?: (text: string, startIndex: number) => void;
+  onSaveEdit?: (text: string, messageIndex: number) => void;
+  onCancelEdit?: () => void;
+  editingMessageIndex?: number | null;
+  editingMessageText?: string;
+  editingAttachments?: ChatAttachment[];
+  onEditingAttachmentsChange?: (attachments: ChatAttachment[]) => void;
+  onEditingTextChange?: (text: string) => void;
+  // Voice input
+  voiceListening?: boolean;
+  onVoiceInput?: () => void;
+  // Slash command autocomplete
+  chatCommands?: SlashCommandEntry[];
+  slashPopoverOpen?: boolean;
+  slashPopoverIndex?: number;
+  onSlashPopoverChange?: (open: boolean, index?: number) => void;
+  onError?: (message: string) => void;
+  maxAttachmentBytes?: number;
 };
 
 const COMPACTION_TOAST_DURATION_MS = 5000;
@@ -110,29 +150,50 @@ function generateAttachmentId(): string {
   return `att-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
 }
 
+/** Max file size for attachments (5 MB — aligned with gateway parseMessageWithAttachments limit) */
+const MAX_ATTACHMENT_BYTES = 5 * 1024 * 1024;
+
+function isImageMime(mime: string): boolean {
+  return mime.startsWith("image/");
+}
+
+/** Readable file size (e.g. "1.2 MB") */
+function formatFileSize(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
 function handlePaste(e: ClipboardEvent, props: ChatProps) {
   const items = e.clipboardData?.items;
   if (!items || !props.onAttachmentsChange) {
     return;
   }
 
-  const imageItems: DataTransferItem[] = [];
+  const fileItems: DataTransferItem[] = [];
   for (let i = 0; i < items.length; i++) {
     const item = items[i];
-    if (item.type.startsWith("image/")) {
-      imageItems.push(item);
+    if (item.kind === "file") {
+      fileItems.push(item);
     }
   }
 
-  if (imageItems.length === 0) {
+  if (fileItems.length === 0) {
     return;
   }
 
   e.preventDefault();
 
-  for (const item of imageItems) {
+  for (const item of fileItems) {
     const file = item.getAsFile();
     if (!file) {
+      continue;
+    }
+    const maxBytes = props.maxAttachmentBytes ?? MAX_ATTACHMENT_BYTES;
+    if (file.size > maxBytes) {
+      props.onError?.(
+        `File "${file.name}" is too large (${formatFileSize(file.size)}). Maximum is ${formatFileSize(maxBytes)}.`,
+      );
       continue;
     }
 
@@ -142,7 +203,8 @@ function handlePaste(e: ClipboardEvent, props: ChatProps) {
       const newAttachment: ChatAttachment = {
         id: generateAttachmentId(),
         dataUrl,
-        mimeType: file.type,
+        mimeType: file.type || "application/octet-stream",
+        fileName: file.name,
       };
       const current = props.attachments ?? [];
       props.onAttachmentsChange?.([...current, newAttachment]);
@@ -159,14 +221,44 @@ function renderAttachmentPreview(props: ChatProps) {
 
   return html`
     <div class="chat-attachments">
-      ${attachments.map(
-        (att) => html`
-          <div class="chat-attachment">
-            <img
-              src=${att.dataUrl}
-              alt="Attachment preview"
-              class="chat-attachment__img"
-            />
+      ${attachments.map((att) => {
+        const isImage = isImageMime(att.mimeType);
+        // Estimate raw size from base64 data URL
+        const b64Start = att.dataUrl.indexOf(",");
+        const b64Len = b64Start >= 0 ? att.dataUrl.length - b64Start - 1 : 0;
+        const sizeBytes = Math.floor(b64Len * 0.75);
+
+        if (isImage) {
+          return html`
+            <div class="chat-attachment">
+              <img
+                src=${att.dataUrl}
+                alt=${att.fileName || "Attachment preview"}
+                class="chat-attachment__img"
+              />
+              <button
+                class="chat-attachment__remove"
+                type="button"
+                aria-label="Remove attachment"
+                @click=${() => {
+                  const next = (props.attachments ?? []).filter((a) => a.id !== att.id);
+                  props.onAttachmentsChange?.(next);
+                }}
+              >
+                ${icons.x}
+              </button>
+            </div>
+          `;
+        }
+
+        // Non-image file: show icon + name + size
+        return html`
+          <div class="chat-attachment chat-attachment--file">
+            <div class="chat-attachment__file-icon">${icons.file}</div>
+            <div class="chat-attachment__file-info">
+              <span class="chat-attachment__file-name">${att.fileName || "file"}</span>
+              <span class="chat-attachment__file-size">${formatFileSize(sizeBytes)}</span>
+            </div>
             <button
               class="chat-attachment__remove"
               type="button"
@@ -179,7 +271,58 @@ function renderAttachmentPreview(props: ChatProps) {
               ${icons.x}
             </button>
           </div>
-        `,
+        `;
+      })}
+    </div>
+  `;
+}
+
+/** Filter commands matching the current draft prefix (e.g. "/sta" → /status, /start). */
+function filterSlashCommands(
+  commands: SlashCommandEntry[] | undefined,
+  draft: string,
+): SlashCommandEntry[] {
+  if (!commands || commands.length === 0) {
+    return [];
+  }
+  const trimmed = draft.trimStart();
+  if (!trimmed.startsWith("/")) {
+    return [];
+  }
+  // Don't show popover if there's a space after the command (user is typing args)
+  if (/^\/\S+\s/.test(trimmed)) {
+    return [];
+  }
+  const prefix = trimmed.toLowerCase();
+  return commands.filter((cmd) => cmd.name.toLowerCase().startsWith(prefix));
+}
+
+function renderSlashPopover(props: ChatProps, filtered: SlashCommandEntry[]) {
+  if (!props.slashPopoverOpen || filtered.length === 0) {
+    return nothing;
+  }
+  const selectedIdx = props.slashPopoverIndex ?? 0;
+  return html`
+    <div class="slash-popover" role="listbox">
+      ${filtered.map(
+        (cmd, i) => html`
+        <button
+          class="slash-popover__item ${i === selectedIdx ? "active" : ""}"
+          type="button"
+          role="option"
+          aria-selected=${i === selectedIdx}
+          @mousedown=${(e: Event) => {
+            // mousedown instead of click to fire before textarea blur
+            e.preventDefault();
+            const text = cmd.acceptsArgs ? `${cmd.name} ` : cmd.name;
+            props.onDraftChange(text);
+            props.onSlashPopoverChange?.(false);
+          }}
+        >
+          <span class="slash-popover__name">${cmd.name}</span>
+          <span class="slash-popover__desc">${cmd.description}</span>
+        </button>
+      `,
       )}
     </div>
   `;
@@ -235,7 +378,11 @@ export function renderChat(props: ChatProps) {
           }
 
           if (item.kind === "reading-indicator") {
-            return renderReadingIndicatorGroup(assistantIdentity);
+            return renderReadingIndicatorGroup(
+              assistantIdentity,
+              item.activeToolName,
+              props.onAbort,
+            );
           }
 
           if (item.kind === "stream") {
@@ -251,8 +398,23 @@ export function renderChat(props: ChatProps) {
             return renderMessageGroup(item, {
               onOpenSidebar: props.onOpenSidebar,
               showReasoning,
+              showToolCards: props.showThinking,
               assistantName: props.assistantName,
               assistantAvatar: assistantIdentity.avatar,
+              actions: {
+                onRegenerate: props.onRegenerate,
+                onReadAloud: props.onReadAloud,
+                ttsPlaying: props.ttsPlaying,
+                onEditMessage: props.onEditMessage,
+                onResendMessage: props.onResendMessage,
+                onSaveEdit: props.onSaveEdit,
+                onCancelEdit: props.onCancelEdit,
+                editingMessageIndex: props.editingMessageIndex,
+                editingMessageText: props.editingMessageText,
+                editingAttachments: props.editingAttachments,
+                onEditingAttachmentsChange: props.onEditingAttachmentsChange,
+                onEditingTextChange: props.onEditingTextChange,
+              },
             });
           }
 
@@ -369,55 +531,151 @@ export function renderChat(props: ChatProps) {
 
       <div class="chat-compose">
         ${renderAttachmentPreview(props)}
-        <div class="chat-compose__row">
-          <label class="field chat-compose__field">
-            <span>Message</span>
-            <textarea
-              ${ref((el) => el && adjustTextareaHeight(el as HTMLTextAreaElement))}
-              .value=${props.draft}
-              ?disabled=${!props.connected}
-              @keydown=${(e: KeyboardEvent) => {
-                if (e.key !== "Enter") {
-                  return;
-                }
-                if (e.isComposing || e.keyCode === 229) {
-                  return;
-                }
-                if (e.shiftKey) {
-                  return;
-                } // Allow Shift+Enter for line breaks
-                if (!props.connected) {
-                  return;
-                }
-                e.preventDefault();
-                if (canCompose) {
-                  props.onSend();
-                }
-              }}
-              @input=${(e: Event) => {
-                const target = e.target as HTMLTextAreaElement;
-                adjustTextareaHeight(target);
-                props.onDraftChange(target.value);
-              }}
-              @paste=${(e: ClipboardEvent) => handlePaste(e, props)}
-              placeholder=${composePlaceholder}
-            ></textarea>
-          </label>
-          <div class="chat-compose__actions">
-            <button
-              class="btn"
-              ?disabled=${!props.connected || (!canAbort && props.sending)}
-              @click=${canAbort ? props.onAbort : props.onNewSession}
-            >
-              ${canAbort ? "Stop" : "New session"}
-            </button>
-            <button
-              class="btn primary"
-              ?disabled=${!props.connected}
-              @click=${props.onSend}
-            >
-              ${isBusy ? "Queue" : "Send"}<kbd class="btn-kbd">↵</kbd>
-            </button>
+        <div class="chat-compose__card">
+          ${renderSlashPopover(props, filterSlashCommands(props.chatCommands, props.draft))}
+          <div class="chat-compose__row">
+            <label class="field chat-compose__field">
+              <span>Message</span>
+              <textarea
+                ${ref((el) => el && adjustTextareaHeight(el as HTMLTextAreaElement))}
+                .value=${props.draft}
+                ?disabled=${!props.connected}
+                @keydown=${(e: KeyboardEvent) => {
+                  if (e.isComposing || e.keyCode === 229) {
+                    return;
+                  }
+                  const filtered = filterSlashCommands(props.chatCommands, props.draft);
+                  const popoverOpen = Boolean(props.slashPopoverOpen && filtered.length > 0);
+                  // Slash popover keyboard navigation
+                  if (popoverOpen) {
+                    const idx = props.slashPopoverIndex ?? 0;
+                    if (e.key === "ArrowDown") {
+                      e.preventDefault();
+                      props.onSlashPopoverChange?.(true, Math.min(idx + 1, filtered.length - 1));
+                      return;
+                    }
+                    if (e.key === "ArrowUp") {
+                      e.preventDefault();
+                      props.onSlashPopoverChange?.(true, Math.max(idx - 1, 0));
+                      return;
+                    }
+                    if (e.key === "Tab" || e.key === "Enter") {
+                      e.preventDefault();
+                      const cmd = filtered[idx];
+                      if (cmd) {
+                        const text = cmd.acceptsArgs ? `${cmd.name} ` : cmd.name;
+                        props.onDraftChange(text);
+                      }
+                      props.onSlashPopoverChange?.(false);
+                      return;
+                    }
+                    if (e.key === "Escape") {
+                      e.preventDefault();
+                      props.onSlashPopoverChange?.(false);
+                      return;
+                    }
+                  }
+                  if (e.key !== "Enter") {
+                    return;
+                  }
+                  if (e.shiftKey) {
+                    return;
+                  }
+                  if (!props.connected) {
+                    return;
+                  }
+                  e.preventDefault();
+                  if (canCompose) {
+                    props.onSend();
+                  }
+                }}
+                @input=${(e: Event) => {
+                  const target = e.target as HTMLTextAreaElement;
+                  adjustTextareaHeight(target);
+                  props.onDraftChange(target.value);
+                  // Slash popover auto-open/close
+                  const filtered = filterSlashCommands(props.chatCommands, target.value);
+                  if (filtered.length > 0) {
+                    props.onSlashPopoverChange?.(true, 0);
+                  } else {
+                    props.onSlashPopoverChange?.(false);
+                  }
+                }}
+                @paste=${(e: ClipboardEvent) => handlePaste(e, props)}
+                placeholder=${composePlaceholder}
+              ></textarea>
+            </label>
+          </div>
+          <div class="chat-compose__bottom">
+            <div class="chat-compose__bottom-left">
+              <button
+                class="btn-icon input-action"
+                type="button"
+                title="Attach file (or paste)"
+                ?disabled=${!props.connected}
+                @click=${() => {
+                  const input = document.createElement("input");
+                  input.type = "file";
+                  input.multiple = true;
+                  input.addEventListener("change", () => {
+                    if (!input.files || !props.onAttachmentsChange) return;
+                    for (const file of Array.from(input.files)) {
+                      const maxBytes = props.maxAttachmentBytes ?? MAX_ATTACHMENT_BYTES;
+                      if (file.size > maxBytes) {
+                        props.onError?.(
+                          `File "${file.name}" is too large (${formatFileSize(file.size)}). Maximum is ${formatFileSize(maxBytes)}.`,
+                        );
+                        continue;
+                      }
+                      const reader = new FileReader();
+                      reader.addEventListener("load", () => {
+                        const dataUrl = reader.result as string;
+                        const att: ChatAttachment = {
+                          id: generateAttachmentId(),
+                          dataUrl,
+                          mimeType: file.type || "application/octet-stream",
+                          fileName: file.name,
+                        };
+                        const current = props.attachments ?? [];
+                        props.onAttachmentsChange?.([...current, att]);
+                      });
+                      reader.readAsDataURL(file);
+                    }
+                  });
+                  input.click();
+                }}
+              >
+                ${icons.paperclip}
+              </button>
+              ${renderModelSelector(props)}
+              ${renderSkillsPopover(props)}
+              ${renderChatsPopover(props)}
+            </div>
+            <div class="chat-compose__bottom-right">
+              ${
+                props.onVoiceInput
+                  ? html`
+                <button
+                  class="btn-icon input-action ${props.voiceListening ? "voice-listening" : ""}"
+                  type="button"
+                  title=${props.voiceListening ? "Listening…" : "Voice input"}
+                  @click=${props.onVoiceInput}
+                >
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="23"/><line x1="8" y1="23" x2="16" y2="23"/></svg>
+                </button>
+              `
+                  : nothing
+              }
+              <button
+                class="btn btn-primary btn-send"
+                type="button"
+                ?disabled=${!props.connected}
+                @click=${props.onSend}
+                title=${isBusy ? "Queue message" : "Send message"}
+              >
+                ${icons.send}
+              </button>
+            </div>
           </div>
         </div>
       </div>
@@ -456,6 +714,7 @@ function groupMessages(items: ChatItem[]): Array<ChatItem | MessageGroup> {
         messages: [{ message: item.message, key: item.key }],
         timestamp,
         isStreaming: false,
+        startIndex: item.originalIndex ?? 0,
       };
     } else {
       currentGroup.messages.push({ message: item.message, key: item.key });
@@ -505,11 +764,23 @@ function buildChatItems(props: ChatProps): Array<ChatItem | MessageGroup> {
     if (!props.showThinking && normalized.role.toLowerCase() === "toolresult") {
       continue;
     }
+    // Hide assistant messages that only contain tool_call blocks (no text for the user)
+    if (!props.showThinking && normalized.role === "assistant") {
+      const text = extractTextCached(msg);
+      if (!text?.trim()) {
+        continue;
+      }
+    }
+    // Hide system messages (internal prompts) from the chat UI
+    if (normalized.role.toLowerCase() === "system") {
+      continue;
+    }
 
     items.push({
       kind: "message",
       key: messageKey(msg, i),
       message: msg,
+      originalIndex: i,
     });
   }
   if (props.showThinking) {
@@ -532,7 +803,7 @@ function buildChatItems(props: ChatProps): Array<ChatItem | MessageGroup> {
         startedAt: props.streamStartedAt ?? Date.now(),
       });
     } else {
-      items.push({ kind: "reading-indicator", key });
+      items.push({ kind: "reading-indicator", key, activeToolName: props.activeToolName ?? null });
     }
   }
 
@@ -559,4 +830,188 @@ function messageKey(message: unknown, index: number): string {
     return `msg:${role}:${timestamp}:${index}`;
   }
   return `msg:${role}:${index}`;
+}
+
+/** Model selector — native <select> grouped by provider */
+function renderModelSelector(props: ChatProps) {
+  const catalog = props.modelsCatalog;
+  if (!catalog || catalog.length === 0) return nothing;
+
+  const currentModel =
+    props.currentModel ||
+    (catalog[0]?.provider ? `${catalog[0].provider}/${catalog[0].id}` : catalog[0]?.id) ||
+    "";
+
+  // Group by provider
+  const groups = new Map<string, typeof catalog>();
+  for (const m of catalog) {
+    const provider = m.provider || "Other";
+    if (!groups.has(provider)) groups.set(provider, []);
+    groups.get(provider)!.push(m);
+  }
+
+  return html`
+    <div class="model-selector-bottom">
+      <select
+        class="model-select"
+        .value=${currentModel}
+        @change=${(e: Event) => {
+          const val = (e.target as HTMLSelectElement).value;
+          props.onModelChange?.(val);
+        }}
+      >
+        ${[...groups.entries()].map(
+          ([provider, models]) => html`
+            <optgroup label=${provider}>
+              ${models.map(
+                (m) => html`
+                  <option value=${m.provider ? `${m.provider}/${m.id}` : m.id} ?selected=${(m.provider ? `${m.provider}/${m.id}` : m.id) === currentModel}>
+                    ${m.provider ? `${m.provider} / ` : ""}${m.name || m.id}
+                  </option>
+                `,
+              )}
+            </optgroup>
+          `,
+        )}
+      </select>
+    </div>
+  `;
+}
+
+/** Skills button + popover */
+function renderSkillsPopover(props: ChatProps) {
+  const skills = props.skills;
+  if (!skills || skills.length === 0) return nothing;
+
+  const enabledCount = skills.filter((s) => s.enabled).length;
+
+  return html`
+    <div 
+      class="skills-btn-wrapper"
+      ${ref((el) => {
+        const wrapper = el as HTMLElement | undefined;
+        if (!wrapper || !props.skillsPopoverOpen) return;
+
+        // Store handler on the element to avoid duplicates and enable cleanup
+        const handleClick = (e: MouseEvent) => {
+          if (!wrapper.contains(e.target as Node)) {
+            props.onToggleSkillsPopover?.();
+          }
+        };
+
+        // Remove any existing handler first
+        const existingHandler = (wrapper as unknown as { _clickHandler?: (e: MouseEvent) => void })
+          ._clickHandler;
+        if (existingHandler) {
+          document.removeEventListener("click", existingHandler);
+        }
+
+        // Store new handler and add listener on next tick
+        (wrapper as unknown as { _clickHandler: (e: MouseEvent) => void })._clickHandler =
+          handleClick;
+        setTimeout(() => {
+          document.addEventListener("click", handleClick, { once: true });
+        }, 0);
+      })}
+    >
+      <button
+        class="skills-btn"
+        type="button"
+        @click=${() => props.onToggleSkillsPopover?.()}
+      >
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
+        Skills <span class="skills-count">${enabledCount}</span>
+      </button>
+      ${
+        props.skillsPopoverOpen
+          ? html`
+          <div class="skills-popover">
+            <div class="skills-popover-header">Skills</div>
+            <div class="skills-popover-list">
+              ${skills.map(
+                (s) => html`
+                  <button
+                    class="skill-toggle ${s.enabled ? "active" : ""}"
+                    @click=${() => props.onToggleSkill?.(s.name)}
+                  >
+                    <span class="skill-toggle-icon">${s.emoji || "⚡"}</span>
+                    ${s.name}
+                  </button>
+                `,
+              )}
+            </div>
+          </div>
+        `
+          : nothing
+      }
+    </div>
+  `;
+}
+
+/** Linked chats button + popover (mirrors skills pattern) */
+function renderChatsPopover(props: ChatProps) {
+  const chats = props.linkedChats;
+  if (!chats || chats.length === 0) return nothing;
+
+  const linkedCount = chats.filter((c) => c.linked).length;
+
+  return html`
+    <div
+      class="chats-btn-wrapper"
+      ${ref((el) => {
+        const wrapper = el as HTMLElement | undefined;
+        if (!wrapper || !props.chatsPopoverOpen) return;
+
+        const handleClick = (e: MouseEvent) => {
+          if (!wrapper.contains(e.target as Node)) {
+            props.onToggleChatsPopover?.();
+          }
+        };
+
+        const existingHandler = (
+          wrapper as unknown as { _chatClickHandler?: (e: MouseEvent) => void }
+        )._chatClickHandler;
+        if (existingHandler) {
+          document.removeEventListener("click", existingHandler);
+        }
+
+        (wrapper as unknown as { _chatClickHandler: (e: MouseEvent) => void })._chatClickHandler =
+          handleClick;
+        setTimeout(() => {
+          document.addEventListener("click", handleClick, { once: true });
+        }, 0);
+      })}
+    >
+      <button
+        class="chats-btn"
+        type="button"
+        @click=${() => props.onToggleChatsPopover?.()}
+      >
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>
+        Chats ${linkedCount > 0 ? html`<span class="chats-count">${linkedCount}</span>` : nothing}
+      </button>
+      ${
+        props.chatsPopoverOpen
+          ? html`
+          <div class="chats-popover">
+            <div class="chats-popover-header">Link chats as context</div>
+            <div class="chats-popover-list">
+              ${chats.map(
+                (c) => html`
+                  <button
+                    class="chat-toggle ${c.linked ? "active" : ""}"
+                    @click=${() => props.onToggleChat?.(c.key)}
+                  >
+                    <span class="chat-toggle-icon">${c.linked ? "🔗" : "💬"}</span>
+                    ${c.title}
+                  </button>
+                `,
+              )}
+            </div>
+          </div>
+        `
+          : nothing
+      }
+    </div>
+  `;
 }

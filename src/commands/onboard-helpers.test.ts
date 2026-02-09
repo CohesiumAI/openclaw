@@ -75,6 +75,7 @@ describe("resolveControlUiLinks", () => {
     });
     expect(links.httpUrl).toBe("http://192.168.1.100:18789/");
     expect(links.wsUrl).toBe("ws://192.168.1.100:18789");
+    expect(links.httpUrlV2).toBe("http://192.168.1.100:18789/v2/");
   });
 
   it("falls back to loopback for invalid customBindHost", () => {
@@ -85,6 +86,7 @@ describe("resolveControlUiLinks", () => {
     });
     expect(links.httpUrl).toBe("http://127.0.0.1:18789/");
     expect(links.wsUrl).toBe("ws://127.0.0.1:18789");
+    expect(links.httpUrlV2).toBe("http://127.0.0.1:18789/v2/");
   });
 
   it("uses tailnet IP for tailnet bind", () => {
@@ -95,6 +97,7 @@ describe("resolveControlUiLinks", () => {
     });
     expect(links.httpUrl).toBe("http://100.64.0.9:18789/");
     expect(links.wsUrl).toBe("ws://100.64.0.9:18789");
+    expect(links.httpUrlV2).toBe("http://100.64.0.9:18789/v2/");
   });
 
   it("keeps loopback for auto even when tailnet is present", () => {
@@ -105,6 +108,7 @@ describe("resolveControlUiLinks", () => {
     });
     expect(links.httpUrl).toBe("http://127.0.0.1:18789/");
     expect(links.wsUrl).toBe("ws://127.0.0.1:18789");
+    expect(links.httpUrlV2).toBe("http://127.0.0.1:18789/v2/");
   });
 });
 

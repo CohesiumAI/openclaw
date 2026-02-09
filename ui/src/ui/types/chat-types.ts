@@ -4,10 +4,10 @@
 
 /** Union type for items in the chat thread */
 export type ChatItem =
-  | { kind: "message"; key: string; message: unknown }
+  | { kind: "message"; key: string; message: unknown; originalIndex?: number }
   | { kind: "divider"; key: string; label: string; timestamp: number }
   | { kind: "stream"; key: string; text: string; startedAt: number }
-  | { kind: "reading-indicator"; key: string };
+  | { kind: "reading-indicator"; key: string; activeToolName: string | null };
 
 /** A group of consecutive messages from the same role (Slack-style layout) */
 export type MessageGroup = {
@@ -17,6 +17,7 @@ export type MessageGroup = {
   messages: Array<{ message: unknown; key: string }>;
   timestamp: number;
   isStreaming: boolean;
+  startIndex: number;
 };
 
 /** Content item types in a normalized message */

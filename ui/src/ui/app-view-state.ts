@@ -1,5 +1,6 @@
 import type { EventLogEntry } from "./app-events.ts";
 import type { CompactionStatus } from "./app-tool-stream.ts";
+import type { SlashCommandEntry } from "./controllers/chat-commands.ts";
 import type { DevicePairingList } from "./controllers/devices.ts";
 import type { ExecApprovalRequest } from "./controllers/exec-approval.ts";
 import type { ExecApprovalsFile, ExecApprovalsSnapshot } from "./controllers/exec-approvals.ts";
@@ -63,6 +64,9 @@ export type AppViewState = {
   compactionStatus: CompactionStatus | null;
   chatAvatarUrl: string | null;
   chatThinkingLevel: string | null;
+  chatActiveToolName: string | null;
+  voiceListening: boolean;
+  ttsPlaying: boolean;
   chatQueue: ChatQueueItem[];
   chatManualRefreshInFlight: boolean;
   nodesLoading: boolean;
@@ -72,6 +76,36 @@ export type AppViewState = {
   sidebarContent: string | null;
   sidebarError: string | null;
   splitRatio: number;
+  sessionsPreview: Map<string, string>;
+  pendingLabels: Map<string, string>;
+  editingMessageIndex: number | null;
+  editingMessageText: string;
+  editingAttachments: ChatAttachment[];
+  modelsLoading: boolean;
+  modelsCatalog: Array<{ id: string; name?: string; provider?: string }>;
+  modelSelectorOpen: boolean;
+  skillsPopoverOpen: boolean;
+  chatsPopoverOpen: boolean;
+  chatCommands: SlashCommandEntry[];
+  slashPopoverOpen: boolean;
+  slashPopoverIndex: number;
+  handleModelChange: (modelId: string) => void;
+  settingsModalOpen: boolean;
+  archiveModalOpen: boolean;
+  activeProjectId: string | null; // null=none, "__list__"=projects list, "proj-xxx"=detail
+  projectModalOpen: boolean;
+  projectModalEditId: string | null; // null=create, string=edit
+  searchModalOpen: boolean;
+  searchQuery: string;
+  contextMenuOpen: boolean;
+  contextMenuTarget: string | null;
+  contextMenuX: number;
+  contextMenuY: number;
+  confirmModalOpen: boolean;
+  confirmModalTitle: string;
+  confirmModalDesc: string;
+  confirmModalOkLabel: string;
+  confirmModalAction: (() => void) | null;
   scrollToBottom: (opts?: { smooth?: boolean }) => void;
   devicesLoading: boolean;
   devicesError: string | null;
@@ -197,6 +231,8 @@ export type AppViewState = {
   skillEdits: Record<string, string>;
   skillMessages: Record<string, SkillMessage>;
   skillsBusyKey: string | null;
+  // Per-session skill overrides: sessionKey → Set of enabled skill names
+  sessionSkillOverrides: Map<string, Set<string>>;
   debugLoading: boolean;
   debugStatus: StatusSummary | null;
   debugHealth: HealthSnapshot | null;
@@ -271,7 +307,11 @@ export type AppViewState = {
   setPassword: (next: string) => void;
   setSessionKey: (next: string) => void;
   setChatMessage: (next: string) => void;
-  handleSendChat: (messageOverride?: string, opts?: { restoreDraft?: boolean }) => Promise<void>;
+  handleNewSession: () => Promise<void>;
+  handleSendChat: (
+    messageOverride?: string,
+    opts?: { restoreDraft?: boolean; attachments?: import("./ui-types.ts").ChatAttachment[] },
+  ) => Promise<void>;
   handleAbortChat: () => Promise<void>;
   removeQueuedMessage: (id: string) => void;
   handleChatScroll: (event: Event) => void;

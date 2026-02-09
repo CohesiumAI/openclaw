@@ -178,6 +178,19 @@ export async function handleOpenAiHttpRequest(
     return false;
   }
 
+  // CORS: allow control-UI requests from any origin (local gateway)
+  const origin = req.headers.origin;
+  if (origin) {
+    res.setHeader("Access-Control-Allow-Origin", origin);
+    res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization");
+    res.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
+  }
+  if (req.method === "OPTIONS") {
+    res.statusCode = 204;
+    res.end();
+    return true;
+  }
+
   if (req.method !== "POST") {
     sendMethodNotAllowed(res);
     return true;

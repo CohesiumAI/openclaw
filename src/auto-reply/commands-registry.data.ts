@@ -558,6 +558,22 @@ function buildChatCommands(): ChatCommandDefinition[] {
       formatArgs: COMMAND_ARG_FORMATTERS.queue,
     }),
     defineChatCommand({
+      key: "joinchat",
+      nativeName: "joinchat",
+      description: "Link another chat as context source, or list available chats.",
+      textAlias: "/joinchat",
+      category: "session",
+      acceptsArgs: true,
+      args: [
+        {
+          name: "action",
+          description: "Session key to join, 'list', or 'remove <key>'",
+          type: "string",
+          captureRemaining: true,
+        },
+      ],
+    }),
+    defineChatCommand({
       key: "bash",
       description: "Run host shell commands (host-only).",
       textAlias: "/bash",
@@ -571,6 +587,29 @@ function buildChatCommands(): ChatCommandDefinition[] {
           captureRemaining: true,
         },
       ],
+    }),
+    defineChatCommand({
+      key: "project",
+      description: "Manage projects (create, rename, list, delete, add, remove).",
+      textAlias: "/project",
+      scope: "text",
+      category: "session",
+      acceptsArgs: true,
+      args: [
+        {
+          name: "action",
+          description: "create, rename, list, delete, add, or remove",
+          type: "string",
+          choices: ["create", "rename", "list", "delete", "add", "remove"],
+        },
+        {
+          name: "name",
+          description: "Project name (or old | new for rename)",
+          type: "string",
+          captureRemaining: true,
+        },
+      ],
+      argsMenu: "auto",
     }),
     ...listChannelDocks()
       .filter((dock) => dock.capabilities.nativeCommands)

@@ -1,0 +1,1579 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>OpenClaw Control V2 — Mockup</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link
+    href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap"
+    rel="stylesheet">
+  <link rel="stylesheet" href="styles.css">
+</head>
+
+<body>
+  <!-- ═══════════════════════════════════════════════════════ -->
+  <!-- MAIN CONTENT                                            -->
+  <!-- ═══════════════════════════════════════════════════════ -->
+  <main class="main" id="main">
+
+    <!-- ─── PAGE: CHAT ─── -->
+    <div class="page page-chat active" id="page-chat">
+      <div class="chat-layout">
+        <!-- Conversation sidebar -->
+        <div class="chat-conversations" id="chatConversations">
+          <div class="conversations-header">
+            <div class="sidebar-brand-row">
+              <span class="sidebar-logo">🦞</span>
+              <span class="sidebar-brand-name">OpenClaw</span>
+              <span class="sidebar-health-dot" title="Health OK"></span>
+            </div>
+            <button class="btn-icon sidebar-toggle-btn" id="toggleConversations" title="Toggle sidebar">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <rect x="3" y="3" width="18" height="18" rx="2" />
+                <line x1="9" y1="3" x2="9" y2="21" />
+              </svg>
+            </button>
+          </div>
+          <div class="sidebar-nav-items">
+            <button class="sidebar-nav-btn" id="newChatBtn">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M12 20h9" />
+                <path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z" />
+              </svg>
+              New chat
+            </button>
+            <button class="sidebar-nav-btn" id="openSearchModal">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <circle cx="11" cy="11" r="8" />
+                <line x1="21" y1="21" x2="16.65" y2="16.65" />
+              </svg>
+              Search
+            </button>
+            <button class="sidebar-nav-btn" id="newProjectBtn" title="New project">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
+              </svg>
+              Projects
+            </button>
+          </div>
+          <div class="conversations-list">
+            <!-- Project: API Integration -->
+            <div class="project-group">
+              <div class="project-header" data-project="api-integration">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
+                </svg>
+                <span class="project-name">API Integration</span>
+                <span class="project-count">2</span>
+                <button class="project-delete-btn" title="Delete project">
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <polyline points="3 6 5 6 21 6" />
+                    <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+                  </svg>
+                </button>
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                  class="project-chevron">
+                  <path d="M6 9l6 6 6-6" />
+                </svg>
+              </div>
+              <div class="project-items">
+                <div class="conversation-item" data-conv-id="c5">
+                  <div class="conversation-info">
+                    <div class="conversation-title">REST endpoint design</div>
+                    <div class="conversation-preview">Let's use OpenAPI 3.1…</div>
+                  </div>
+                  <div class="conversation-meta">Feb 4</div>
+                  <button class="conv-menu-btn" title="More">⋯</button>
+                </div>
+                <div class="conversation-item" data-conv-id="c6">
+                  <div class="conversation-info">
+                    <div class="conversation-title">Auth middleware</div>
+                    <div class="conversation-preview">JWT + refresh tokens…</div>
+                  </div>
+                  <div class="conversation-meta">Feb 3</div>
+                  <button class="conv-menu-btn" title="More">⋯</button>
+                </div>
+              </div>
+            </div>
+
+            <!-- Pinned conversations (collapsible) -->
+            <div class="project-group pinned-group">
+              <div class="project-header" data-project="pinned">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <path d="M12 2l3 7h7l-5.5 4 2 7L12 16l-6.5 4 2-7L2 9h7z" />
+                </svg>
+                <span class="project-name">Pinned</span>
+                <span class="project-count">1</span>
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                  class="project-chevron">
+                  <path d="M6 9l6 6 6-6" />
+                </svg>
+              </div>
+              <div class="project-items">
+                <div class="conversation-item pinned" data-conv-id="c7">
+                  <div class="conversation-info">
+                    <div class="conversation-title">Project roadmap Q1 2026</div>
+                    <div class="conversation-preview">Here's the updated timeline…</div>
+                  </div>
+                  <div class="conversation-meta">Jan 31</div>
+                  <button class="conv-menu-btn" title="More">⋯</button>
+                </div>
+              </div>
+            </div>
+
+            <div class="conversations-group-label">Today</div>
+            <div class="conversation-item active" data-conv-id="c1">
+              <div class="conversation-info">
+                <div class="conversation-title">Python script help</div>
+                <div class="conversation-preview">Hey — I'm online and ready…</div>
+              </div>
+              <div class="conversation-meta">19:10</div>
+              <button class="conv-menu-btn" title="More">⋯</button>
+            </div>
+            <div class="conversation-item" data-conv-id="c2">
+              <div class="conversation-info">
+                <div class="conversation-title">Data analysis project</div>
+                <div class="conversation-preview">Let me analyze that CSV for you…</div>
+              </div>
+              <div class="conversation-meta">14:32</div>
+              <button class="conv-menu-btn" title="More">⋯</button>
+            </div>
+            <div class="conversations-group-label">Yesterday</div>
+            <div class="conversation-item" data-conv-id="c3">
+              <div class="conversation-info">
+                <div class="conversation-title">Blog post draft</div>
+                <div class="conversation-preview">Here's the outline for your article…</div>
+              </div>
+              <div class="conversation-meta">Feb 5</div>
+              <button class="conv-menu-btn" title="More">⋯</button>
+            </div>
+            <div class="conversation-item archived" data-conv-id="c4">
+              <div class="conversation-info">
+                <div class="conversation-title">Docker compose debug</div>
+                <div class="conversation-preview">The issue is in your volume mount…</div>
+              </div>
+              <div class="conversation-meta">Feb 5</div>
+              <button class="conv-menu-btn" title="More">⋯</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Conversation context menu (hidden, positioned by JS) -->
+        <div class="conv-context-menu" id="convContextMenu">
+          <button class="ctx-item" data-action="pin"><svg width="14" height="14" viewBox="0 0 24 24" fill="none"
+              stroke="currentColor" stroke-width="2">
+              <path d="M12 2l3 7h7l-5.5 4 2 7L12 16l-6.5 4 2-7L2 9h7z" />
+            </svg> Pin</button>
+          <button class="ctx-item" data-action="archive"><svg width="14" height="14" viewBox="0 0 24 24" fill="none"
+              stroke="currentColor" stroke-width="2">
+              <polyline points="21 8 21 21 3 21 3 8" />
+              <rect x="1" y="3" width="22" height="5" />
+              <line x1="10" y1="12" x2="14" y2="12" />
+            </svg> Archive</button>
+          <div class="ctx-separator"></div>
+          <div class="ctx-sub-wrapper">
+            <button class="ctx-item ctx-sub" data-action="move">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
+              </svg> Move to project
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                style="margin-left:auto">
+                <path d="M9 18l6-6-6-6" />
+              </svg>
+            </button>
+            <!-- Side submenu for projects (positioned to the right by CSS) -->
+            <div class="ctx-submenu-side" id="ctxProjectList">
+              <button class="ctx-item" data-action="move-to" data-project="api-integration">API Integration</button>
+              <button class="ctx-item ctx-remove-project" data-action="move-to" data-project="none">Remove from
+                project</button>
+            </div>
+          </div>
+          <div class="ctx-separator"></div>
+          <button class="ctx-item ctx-danger" data-action="delete"><svg width="14" height="14" viewBox="0 0 24 24"
+              fill="none" stroke="currentColor" stroke-width="2">
+              <polyline points="3 6 5 6 21 6" />
+              <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+            </svg> Delete</button>
+        </div>
+
+        <!-- Chat main area -->
+        <div class="chat-main">
+          <!-- Chat header (simplified — settings in modal) -->
+          <div class="chat-header">
+            <div class="chat-header-left">
+              <button class="btn-icon sidebar-open-btn" title="Open sidebar" id="openSidebar" style="display:none">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <path d="M9 18l6-6-6-6" />
+                </svg>
+              </button>
+              <div class="chat-header-title">
+                <span class="chat-title-text">Python script help</span>
+                <span class="chat-session-badge">agent:main:main</span>
+              </div>
+            </div>
+            <div class="chat-header-actions">
+              <button class="btn-icon theme-toggle-btn" id="themeToggleBtn" title="Toggle theme">
+                <svg class="icon-moon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                  stroke-width="2">
+                  <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" />
+                </svg>
+                <svg class="icon-sun" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                  stroke-width="2" style="display:none">
+                  <circle cx="12" cy="12" r="5" />
+                  <path
+                    d="M12 1v2m0 18v2M4.22 4.22l1.42 1.42m12.72 12.72l1.42 1.42M1 12h2m18 0h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42" />
+                </svg>
+              </button>
+              <button class="btn-icon" title="Chat settings" id="openChatSettings">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <circle cx="12" cy="12" r="3" />
+                  <path
+                    d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" />
+                </svg>
+              </button>
+            </div>
+          </div>
+
+          <!-- Settings & Navigation Modal (replaces the sidebar) -->
+          <div class="chat-settings-modal" id="chatSettingsModal">
+            <div class="chat-settings-overlay" id="chatSettingsOverlayBg"></div>
+            <div class="chat-settings-panel chat-settings-panel-wide">
+              <div class="chat-settings-header">
+                <div class="settings-brand"><span class="brand-logo">🦞</span> <strong>OpenClaw</strong> <span
+                    class="health-dot-sm"></span></div>
+                <button class="btn-icon" id="closeChatSettings"><svg width="18" height="18" viewBox="0 0 24 24"
+                    fill="none" stroke="currentColor" stroke-width="2">
+                    <line x1="18" y1="6" x2="6" y2="18" />
+                    <line x1="6" y1="6" x2="18" y2="18" />
+                  </svg></button>
+              </div>
+              <div class="chat-settings-body">
+                <!-- Navigation grid -->
+                <div class="modal-nav-section">
+                  <div class="modal-nav-label">CONTROL</div>
+                  <div class="modal-nav-grid">
+                    <button class="modal-nav-item" data-page="overview"><svg width="18" height="18" viewBox="0 0 24 24"
+                        fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" />
+                      </svg>Overview</button>
+                    <button class="modal-nav-item" data-page="channels"><svg width="18" height="18" viewBox="0 0 24 24"
+                        fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M4 11a9 9 0 0 1 9 9" />
+                        <path d="M4 4a16 16 0 0 1 16 16" />
+                        <circle cx="5" cy="19" r="1" />
+                      </svg>Channels</button>
+                    <button class="modal-nav-item" data-page="sessions"><svg width="18" height="18" viewBox="0 0 24 24"
+                        fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" />
+                        <circle cx="9" cy="7" r="4" />
+                      </svg>Sessions</button>
+                    <button class="modal-nav-item" data-page="usage"><svg width="18" height="18" viewBox="0 0 24 24"
+                        fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M18 20V10" />
+                        <path d="M12 20V4" />
+                        <path d="M6 20v-6" />
+                      </svg>Usage</button>
+                  </div>
+                </div>
+                <div class="modal-nav-section">
+                  <div class="modal-nav-label">AGENT</div>
+                  <div class="modal-nav-grid">
+                    <button class="modal-nav-item" data-page="agents"><svg width="18" height="18" viewBox="0 0 24 24"
+                        fill="none" stroke="currentColor" stroke-width="2">
+                        <rect x="4" y="4" width="16" height="16" rx="2" />
+                        <path d="M9 9h6m-6 4h6m-6 4h4" />
+                      </svg>Agents</button>
+                    <button class="modal-nav-item" data-page="skills"><svg width="18" height="18" viewBox="0 0 24 24"
+                        fill="none" stroke="currentColor" stroke-width="2">
+                        <polygon
+                          points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2" />
+                      </svg>Skills</button>
+                    <button class="modal-nav-item" data-page="nodes"><svg width="18" height="18" viewBox="0 0 24 24"
+                        fill="none" stroke="currentColor" stroke-width="2">
+                        <rect x="2" y="2" width="20" height="8" rx="2" />
+                        <rect x="2" y="14" width="20" height="8" rx="2" />
+                      </svg>Nodes</button>
+                  </div>
+                </div>
+                <div class="modal-nav-section">
+                  <div class="modal-nav-label">SETTINGS</div>
+                  <div class="modal-nav-grid">
+                    <button class="modal-nav-item" data-page="config"><svg width="18" height="18" viewBox="0 0 24 24"
+                        fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M12 20h9" />
+                        <path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z" />
+                      </svg>Config</button>
+                    <button class="modal-nav-item" data-page="logs"><svg width="18" height="18" viewBox="0 0 24 24"
+                        fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+                        <polyline points="14 2 14 8 20 8" />
+                      </svg>Logs</button>
+                    <a class="modal-nav-item" href="https://docs.openclaw.ai/" target="_blank"><svg width="18"
+                        height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z" />
+                        <path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z" />
+                      </svg>Docs ↗</a>
+                  </div>
+                </div>
+
+                <!-- Separator -->
+                <div class="modal-separator"></div>
+
+                <!-- Chat settings -->
+                <div class="modal-nav-section">
+                  <div class="modal-nav-label">CHAT SETTINGS</div>
+                  <div class="settings-section">
+                    <div class="settings-row">
+                      <div class="settings-row-label"><svg width="16" height="16" viewBox="0 0 24 24" fill="none"
+                          stroke="currentColor" stroke-width="2">
+                          <path
+                            d="M12 2a7 7 0 0 0-7 7c0 2.38 1.19 4.47 3 5.74V17a2 2 0 0 0 2 2h4a2 2 0 0 0 2-2v-2.26c1.81-1.27 3-3.36 3-5.74a7 7 0 0 0-7-7z" />
+                          <line x1="9" y1="21" x2="15" y2="21" />
+                        </svg>Show thinking</div><label class="toggle"><input type="checkbox" checked><span
+                          class="toggle-slider"></span></label>
+                    </div>
+                    <div class="settings-row">
+                      <div class="settings-row-label"><svg width="16" height="16" viewBox="0 0 24 24" fill="none"
+                          stroke="currentColor" stroke-width="2">
+                          <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5" />
+                          <path d="M15.54 8.46a5 5 0 0 1 0 7.07" />
+                        </svg>Text-to-Speech</div><label class="toggle"><input type="checkbox"><span
+                          class="toggle-slider"></span></label>
+                    </div>
+                    <div class="settings-row">
+                      <div class="settings-row-label"><svg width="16" height="16" viewBox="0 0 24 24" fill="none"
+                          stroke="currentColor" stroke-width="2">
+                          <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z" />
+                          <path d="M19 10v2a7 7 0 0 1-14 0v-2" />
+                        </svg>Speech-to-Text</div><label class="toggle"><input type="checkbox"><span
+                          class="toggle-slider"></span></label>
+                    </div>
+                    <div class="settings-row">
+                      <div class="settings-row-label"><svg width="16" height="16" viewBox="0 0 24 24" fill="none"
+                          stroke="currentColor" stroke-width="2">
+                          <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
+                          <circle cx="12" cy="12" r="3" />
+                        </svg>Stream responses</div><label class="toggle"><input type="checkbox" checked><span
+                          class="toggle-slider"></span></label>
+                    </div>
+                    <div class="settings-row">
+                      <div class="settings-row-label"><svg width="16" height="16" viewBox="0 0 24 24" fill="none"
+                          stroke="currentColor" stroke-width="2">
+                          <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+                          <polyline points="14 2 14 8 20 8" />
+                        </svg>Render Markdown</div><label class="toggle"><input type="checkbox" checked><span
+                          class="toggle-slider"></span></label>
+                    </div>
+                  </div>
+                  <div class="settings-section">
+                    <label class="form-label">Thinking budget</label>
+                    <select class="form-select form-select-sm">
+                      <option>off</option>
+                      <option selected>low</option>
+                      <option>medium</option>
+                      <option>high</option>
+                    </select>
+                  </div>
+                  <div class="settings-section">
+                    <label class="form-label">Session</label>
+                    <select class="form-select form-select-sm">
+                      <option selected>agent:main:main</option>
+                      <option>agent:main:cron:daily</option>
+                    </select>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Chat messages -->
+          <div class="chat-messages" id="chatMessages">
+            <!-- Session separator -->
+            <div class="session-separator">
+              <span class="session-separator-line"></span>
+              <span class="session-separator-text">New session started · gpt-5.2 · 19:10</span>
+              <span class="session-separator-line"></span>
+            </div>
+
+            <!-- Assistant greeting -->
+            <div class="message message-assistant">
+              <div class="message-avatar">🦞</div>
+              <div class="message-content">
+                <div class="message-header">
+                  <span class="message-author">Assistant</span>
+                  <span class="message-time">19:10</span>
+                  <span class="message-model-badge">gpt-5.2</span>
+                </div>
+                <div class="message-body">
+                  <p>Hey — I'm online and ready. What do you want to do today?</p>
+                  <div class="message-suggestions">
+                    <button class="suggestion-chip">📝 Write code</button>
+                    <button class="suggestion-chip">📋 Plan a project</button>
+                    <button class="suggestion-chip">🔍 Search the web</button>
+                    <button class="suggestion-chip">📊 Analyze data</button>
+                  </div>
+                </div>
+                <div class="message-actions">
+                  <button class="msg-action-btn" title="Copy as markdown">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                      <rect x="9" y="9" width="13" height="13" rx="2" />
+                      <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
+                    </svg>
+                  </button>
+                  <button class="msg-action-btn" title="Regenerate">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                      <polyline points="23 4 23 10 17 10" />
+                      <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10" />
+                    </svg>
+                  </button>
+                  <button class="msg-action-btn" title="Read aloud">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                      <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5" />
+                      <path d="M15.54 8.46a5 5 0 0 1 0 7.07" />
+                    </svg>
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            <!-- User message -->
+            <div class="message message-user">
+              <div class="message-content">
+                <div class="message-header">
+                  <span class="message-author">You</span>
+                  <span class="message-time">19:11</span>
+                </div>
+                <div class="message-body">
+                  <p>Help me write a Python script that reads a CSV file and generates a summary with charts using
+                    matplotlib</p>
+                </div>
+                <div class="message-actions">
+                  <button class="msg-action-btn msg-edit-btn" title="Edit message">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                      <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
+                      <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
+                    </svg>
+                  </button>
+                  <button class="msg-action-btn msg-resend-btn" title="Resend">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                      <polyline points="23 4 23 10 17 10" />
+                      <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10" />
+                    </svg>
+                  </button>
+                </div>
+              </div>
+              <div class="message-avatar message-avatar-user">U</div>
+            </div>
+
+            <!-- Thinking block -->
+            <div class="message message-assistant">
+              <div class="message-avatar">🦞</div>
+              <div class="message-content">
+                <div class="thinking-block">
+                  <button class="thinking-toggle">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                      <path
+                        d="M12 2a7 7 0 0 0-7 7c0 2.38 1.19 4.47 3 5.74V17a2 2 0 0 0 2 2h4a2 2 0 0 0 2-2v-2.26c1.81-1.27 3-3.36 3-5.74a7 7 0 0 0-7-7z" />
+                    </svg>
+                    Thinking… <span class="thinking-time">2.3s</span>
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                      class="thinking-chevron">
+                      <path d="M6 9l6 6 6-6" />
+                    </svg>
+                  </button>
+                  <div class="thinking-content collapsed">
+                    <p>The user wants a Python script for CSV analysis with matplotlib charts. I'll create a script
+                      that:</p>
+                    <p>1. Reads a CSV with pandas<br>2. Generates summary statistics<br>3. Creates bar charts and
+                      histograms</p>
+                  </div>
+                </div>
+
+                <div class="message-header">
+                  <span class="message-author">Assistant</span>
+                  <span class="message-time">19:11</span>
+                  <span class="message-model-badge">gpt-5.2</span>
+                </div>
+                <div class="message-body markdown-body">
+                  <p>Here's a Python script that reads a CSV and generates a visual summary:</p>
+                  <div class="code-block">
+                    <div class="code-block-header">
+                      <span class="code-lang">python</span>
+                      <div class="code-actions">
+                        <button class="code-action-btn" title="Copy code">
+                          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                            stroke-width="2">
+                            <rect x="9" y="9" width="13" height="13" rx="2" />
+                            <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
+                          </svg>
+                          Copy
+                        </button>
+                      </div>
+                    </div>
+                    <pre><code><span class="kw">import</span> <span class="lib">pandas</span> <span class="kw">as</span> pd
+<span class="kw">import</span> <span class="lib">matplotlib.pyplot</span> <span class="kw">as</span> plt
+
+<span class="kw">def</span> <span class="fn">analyze_csv</span>(filepath: <span class="type">str</span>) -> <span class="type">None</span>:
+    <span class="str">"""Read CSV and generate summary charts."""</span>
+    df = pd.read_csv(filepath)
+
+    <span class="cmt"># Print summary statistics</span>
+    <span class="fn">print</span>(df.describe())
+
+    <span class="cmt"># Generate charts for numeric columns</span>
+    numeric_cols = df.select_dtypes(include=[<span class="str">"number"</span>]).columns
+    fig, axes = plt.subplots(
+        <span class="num">1</span>, <span class="fn">len</span>(numeric_cols),
+        figsize=(<span class="num">5</span> * <span class="fn">len</span>(numeric_cols), <span class="num">4</span>)
+    )
+
+    <span class="kw">for</span> i, col <span class="kw">in</span> <span class="fn">enumerate</span>(numeric_cols):
+        ax = axes[i] <span class="kw">if</span> <span class="fn">len</span>(numeric_cols) > <span class="num">1</span> <span class="kw">else</span> axes
+        df[col].hist(ax=ax, bins=<span class="num">20</span>, color=<span class="str">"#3b82f6"</span>)
+        ax.set_title(col)
+
+    plt.tight_layout()
+    plt.savefig(<span class="str">"summary.png"</span>, dpi=<span class="num">150</span>)
+    <span class="fn">print</span>(<span class="str">"Chart saved to summary.png"</span>)
+
+<span class="kw">if</span> __name__ == <span class="str">"__main__"</span>:
+    analyze_csv(<span class="str">"data.csv"</span>)</code></pre>
+                  </div>
+                  <p>This script will:</p>
+                  <ul>
+                    <li><strong>Read</strong> any CSV file with <code>pandas</code></li>
+                    <li><strong>Print</strong> summary statistics (mean, std, min, max, quartiles)</li>
+                    <li><strong>Generate</strong> histograms for each numeric column</li>
+                    <li><strong>Save</strong> the chart as <code>summary.png</code></li>
+                  </ul>
+                  <p>Want me to add specific chart types or handle a particular CSV structure?</p>
+                </div>
+                <div class="message-actions">
+                  <button class="msg-action-btn" title="Copy as markdown">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                      <rect x="9" y="9" width="13" height="13" rx="2" />
+                      <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
+                    </svg>
+                  </button>
+                  <button class="msg-action-btn" title="Regenerate">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                      <polyline points="23 4 23 10 17 10" />
+                      <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10" />
+                    </svg>
+                  </button>
+                  <button class="msg-action-btn" title="Read aloud">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                      <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5" />
+                      <path d="M15.54 8.46a5 5 0 0 1 0 7.07" />
+                    </svg>
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            <!-- Typing indicator -->
+            <div class="message message-assistant typing-indicator" id="typingIndicator" style="display: none;">
+              <div class="message-avatar">🦞</div>
+              <div class="message-content">
+                <div class="typing-dots">
+                  <span></span><span></span><span></span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Chat input -->
+          <div class="chat-input-area">
+            <div class="chat-input-attachments" id="attachments" style="display: none;">
+              <div class="attachment-chip">
+                <span class="attachment-icon">📄</span>
+                <span class="attachment-name">data.csv</span>
+                <button class="attachment-remove">×</button>
+              </div>
+            </div>
+            <div class="chat-input-wrapper">
+              <input type="file" id="fileInput" multiple
+                accept="image/*,video/*,.pdf,.doc,.docx,.xls,.xlsx,.csv,.txt,.zip" style="display:none">
+              <textarea class="chat-input" id="chatInput" placeholder="Message… (↵ send, Shift+↵ newline)"
+                rows="1"></textarea>
+              <div class="chat-input-bottom-row">
+                <div class="chat-input-bottom-left">
+                  <button class="btn-icon input-action" title="Attach file" id="attachBtn">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                      <path
+                        d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48" />
+                    </svg>
+                  </button>
+                  <div class="model-selector-bottom">
+                    <select class="model-select" id="modelSelect">
+                      <optgroup label="OpenAI">
+                        <option selected>OpenAI-Codex / gpt-5.2</option>
+                        <option>OpenAI / gpt-5</option>
+                        <option>OpenAI / gpt-4o</option>
+                        <option>OpenAI / o3</option>
+                        <option>OpenAI / o4-mini</option>
+                      </optgroup>
+                      <optgroup label="Anthropic">
+                        <option>Anthropic / claude-opus-4.6</option>
+                        <option>Anthropic / claude-opus-4.5</option>
+                        <option>Anthropic / claude-sonnet-4</option>
+                        <option>Anthropic / claude-haiku-4.5</option>
+                      </optgroup>
+                      <optgroup label="Google">
+                        <option>Google / gemini-3-pro</option>
+                        <option>Google / gemini-2.5-flash</option>
+                      </optgroup>
+                      <optgroup label="Amazon Bedrock">
+                        <option>Bedrock / claude-opus-4.5</option>
+                        <option>Bedrock / claude-sonnet-4</option>
+                      </optgroup>
+                    </select>
+                  </div>
+                  <!-- Skills: single button + popover -->
+                  <div class="skills-btn-wrapper">
+                    <button class="skills-btn" id="skillsBtn">
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                        stroke-width="2">
+                        <polygon
+                          points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2" />
+                      </svg>
+                      Skills <span class="skills-count" id="skillsCount">3</span>
+                    </button>
+                    <div class="skills-popover" id="skillsPopover">
+                      <div class="skills-popover-header">Skills</div>
+                      <div class="skills-popover-list">
+                        <button class="skill-toggle active" data-skill="web_search"><span
+                            class="skill-toggle-icon">🌐</span> web_search</button>
+                        <button class="skill-toggle active" data-skill="coding_agent"><span
+                            class="skill-toggle-icon">💻</span> coding_agent</button>
+                        <button class="skill-toggle active" data-skill="file_read"><span
+                            class="skill-toggle-icon">📄</span>
+                          file_read</button>
+                        <button class="skill-toggle" data-skill="file_write"><span class="skill-toggle-icon">✏️</span>
+                          file_write</button>
+                        <button class="skill-toggle" data-skill="image_gen"><span class="skill-toggle-icon">🖼️</span>
+                          image_gen</button>
+                        <button class="skill-toggle" data-skill="canvas"><span class="skill-toggle-icon">🎨</span>
+                          canvas</button>
+                        <button class="skill-toggle" data-skill="memory"><span class="skill-toggle-icon">🧠</span>
+                          memory</button>
+                        <button class="skill-toggle" data-skill="calendar"><span class="skill-toggle-icon">📅</span>
+                          calendar</button>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+                <div class="chat-input-bottom-right">
+                  <button class="btn-icon input-action" title="Voice input" id="voiceBtn">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                      <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z" />
+                      <path d="M19 10v2a7 7 0 0 1-14 0v-2" />
+                      <line x1="12" y1="19" x2="12" y2="23" />
+                      <line x1="8" y1="23" x2="16" y2="23" />
+                    </svg>
+                  </button>
+                  <button class="btn btn-primary btn-send" id="sendBtn" title="Send">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                      <line x1="22" y1="2" x2="11" y2="13" />
+                      <polygon points="22 2 15 22 11 13 2 9 22 2" />
+                    </svg>
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ─── SEARCH MODAL ─── -->
+    <div class="search-modal" id="searchModal">
+      <div class="search-modal-overlay"></div>
+      <div class="search-modal-panel">
+        <div class="search-modal-header">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <circle cx="11" cy="11" r="8" />
+            <line x1="21" y1="21" x2="16.65" y2="16.65" />
+          </svg>
+          <input type="text" class="search-modal-input" id="searchModalInput" placeholder="Search conversations…"
+            autofocus>
+          <button class="btn-icon search-modal-close" id="closeSearchModal">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <line x1="18" y1="6" x2="6" y2="18" />
+              <line x1="6" y1="6" x2="18" y2="18" />
+            </svg>
+          </button>
+        </div>
+        <div class="search-modal-body" id="searchModalBody">
+          <button class="search-result-item search-new-chat" id="searchNewChat">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M12 20h9" />
+              <path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z" />
+            </svg>
+            New chat
+          </button>
+          <div class="search-results" id="searchResults"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ─── PAGE: OVERVIEW ─── -->
+    <div class="page" id="page-overview">
+      <div class="page-header">
+        <div class="breadcrumb">
+          <span class="breadcrumb-item">Control</span>
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M9 18l6-6-6-6" />
+          </svg>
+          <span class="breadcrumb-item active">Overview</span>
+        </div>
+        <h1 class="page-title">Overview</h1>
+        <p class="page-desc">Gateway status, entry points, and a fast health read.</p>
+      </div>
+      <div class="page-content">
+        <!-- Status Cards -->
+        <div class="stats-grid">
+          <div class="stat-card stat-card-accent">
+            <div class="stat-label">STATUS</div>
+            <div class="stat-value stat-success">Connected</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-label">UPTIME</div>
+            <div class="stat-value">2h 34m</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-label">INSTANCES</div>
+            <div class="stat-value">3</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-label">SESSIONS</div>
+            <div class="stat-value">5</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-label">CRON</div>
+            <div class="stat-value">Enabled</div>
+            <div class="stat-sub">Next wake in 12m</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-label">CHANNELS REFRESH</div>
+            <div class="stat-value">0s ago</div>
+          </div>
+        </div>
+
+        <div class="card-grid-2">
+          <!-- Gateway Access -->
+          <div class="card">
+            <div class="card-header">
+              <h3 class="card-title">Gateway Access</h3>
+              <p class="card-desc">Connection and authentication settings.</p>
+            </div>
+            <div class="card-body">
+              <div class="form-group">
+                <label class="form-label">WebSocket URL</label>
+                <input type="text" class="form-input" value="ws://127.0.0.1:18789" readonly>
+              </div>
+              <div class="form-group">
+                <label class="form-label">Gateway Token</label>
+                <div class="input-with-toggle">
+                  <input type="password" class="form-input" value="91eb6b5da69bfa22b9be76acec10c434" readonly>
+                  <button class="btn-icon input-toggle-vis" title="Show token">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                      <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
+                      <circle cx="12" cy="12" r="3" />
+                    </svg>
+                  </button>
+                </div>
+              </div>
+              <div class="form-row">
+                <button class="btn btn-primary">Connect</button>
+                <button class="btn btn-outline">Refresh</button>
+              </div>
+            </div>
+          </div>
+
+          <!-- Quick Channel Status -->
+          <div class="card">
+            <div class="card-header">
+              <h3 class="card-title">Channels</h3>
+              <p class="card-desc">Active messaging channels.</p>
+            </div>
+            <div class="card-body">
+              <div class="channel-status-list">
+                <div class="channel-status-item">
+                  <span class="channel-icon">💬</span>
+                  <span class="channel-name">WhatsApp</span>
+                  <span class="status-badge status-offline">Not linked</span>
+                </div>
+                <div class="channel-status-item">
+                  <span class="channel-icon">✈️</span>
+                  <span class="channel-name">Telegram</span>
+                  <span class="status-badge status-offline">Not configured</span>
+                </div>
+                <div class="channel-status-item">
+                  <span class="channel-icon">🎮</span>
+                  <span class="channel-name">Discord</span>
+                  <span class="status-badge status-offline">Not configured</span>
+                </div>
+                <div class="channel-status-item">
+                  <span class="channel-icon">💼</span>
+                  <span class="channel-name">Slack</span>
+                  <span class="status-badge status-offline">Not configured</span>
+                </div>
+              </div>
+              <a href="#" class="card-link" data-page="channels">Configure channels →</a>
+            </div>
+          </div>
+        </div>
+
+        <!-- Notes -->
+        <div class="card">
+          <div class="card-header">
+            <h3 class="card-title">Quick Notes</h3>
+          </div>
+          <div class="card-body">
+            <div class="notes-grid">
+              <div class="note-item">
+                <div class="note-icon">🔒</div>
+                <div class="note-content">
+                  <strong>Tailscale serve</strong>
+                  <p>Prefer serve mode to keep the gateway on loopback with tailnet auth.</p>
+                </div>
+              </div>
+              <div class="note-item">
+                <div class="note-icon">🔄</div>
+                <div class="note-content">
+                  <strong>Session hygiene</strong>
+                  <p>Use /new or sessions.patch to reset context.</p>
+                </div>
+              </div>
+              <div class="note-item">
+                <div class="note-icon">⏰</div>
+                <div class="note-content">
+                  <strong>Cron reminders</strong>
+                  <p>Use isolated sessions for recurring runs.</p>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ─── PAGE: CHANNELS ─── -->
+    <div class="page" id="page-channels">
+      <div class="page-header">
+        <div class="breadcrumb">
+          <span class="breadcrumb-item">Control</span>
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M9 18l6-6-6-6" />
+          </svg>
+          <span class="breadcrumb-item active">Channels</span>
+        </div>
+        <h1 class="page-title">Channels</h1>
+        <p class="page-desc">Manage messaging channels and settings.</p>
+      </div>
+      <div class="page-content">
+        <div class="card-grid-2">
+          <!-- WhatsApp -->
+          <div class="card">
+            <div class="card-header">
+              <div class="card-header-row">
+                <h3 class="card-title">💬 WhatsApp</h3>
+                <span class="status-badge status-offline">Not linked</span>
+              </div>
+              <p class="card-desc">Link WhatsApp Web and monitor connection health.</p>
+            </div>
+            <div class="card-body">
+              <div class="kv-list">
+                <div class="kv-row"><span class="kv-key">Configured</span><span class="kv-val kv-no">No</span></div>
+                <div class="kv-row"><span class="kv-key">Linked</span><span class="kv-val kv-no">No</span></div>
+                <div class="kv-row"><span class="kv-key">Running</span><span class="kv-val kv-no">No</span></div>
+                <div class="kv-row"><span class="kv-key">Last message</span><span class="kv-val">n/a</span></div>
+              </div>
+              <div class="form-row" style="margin-top: 16px;">
+                <button class="btn btn-primary btn-sm">Show QR</button>
+                <button class="btn btn-outline btn-sm">Relink</button>
+                <button class="btn btn-outline btn-sm">Refresh</button>
+              </div>
+            </div>
+          </div>
+          <!-- Telegram -->
+          <div class="card">
+            <div class="card-header">
+              <div class="card-header-row">
+                <h3 class="card-title">✈️ Telegram</h3>
+                <span class="status-badge status-offline">Not configured</span>
+              </div>
+              <p class="card-desc">Bot status and channel configuration.</p>
+            </div>
+            <div class="card-body">
+              <div class="kv-list">
+                <div class="kv-row"><span class="kv-key">Configured</span><span class="kv-val kv-no">No</span></div>
+                <div class="kv-row"><span class="kv-key">Running</span><span class="kv-val kv-no">No</span></div>
+                <div class="kv-row"><span class="kv-key">Mode</span><span class="kv-val">n/a</span></div>
+              </div>
+              <div class="empty-state-sm">
+                <p>Set up your Telegram bot token to get started.</p>
+                <button class="btn btn-primary btn-sm">Configure →</button>
+              </div>
+            </div>
+          </div>
+          <!-- Discord -->
+          <div class="card">
+            <div class="card-header">
+              <div class="card-header-row">
+                <h3 class="card-title">🎮 Discord</h3>
+                <span class="status-badge status-offline">Not configured</span>
+              </div>
+              <p class="card-desc">Bot status and channel configuration.</p>
+            </div>
+            <div class="card-body">
+              <div class="kv-list">
+                <div class="kv-row"><span class="kv-key">Configured</span><span class="kv-val kv-no">No</span></div>
+                <div class="kv-row"><span class="kv-key">Running</span><span class="kv-val kv-no">No</span></div>
+              </div>
+              <div class="empty-state-sm">
+                <p>Add your Discord bot token to connect.</p>
+                <button class="btn btn-primary btn-sm">Configure →</button>
+              </div>
+            </div>
+          </div>
+          <!-- Slack -->
+          <div class="card">
+            <div class="card-header">
+              <div class="card-header-row">
+                <h3 class="card-title">💼 Slack</h3>
+                <span class="status-badge status-offline">Not configured</span>
+              </div>
+              <p class="card-desc">Socket mode status and channel configuration.</p>
+            </div>
+            <div class="card-body">
+              <div class="kv-list">
+                <div class="kv-row"><span class="kv-key">Configured</span><span class="kv-val kv-no">No</span></div>
+                <div class="kv-row"><span class="kv-key">Running</span><span class="kv-val kv-no">No</span></div>
+              </div>
+              <div class="empty-state-sm">
+                <p>Set up Slack socket mode credentials.</p>
+                <button class="btn btn-primary btn-sm">Configure →</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ─── PAGE: SESSIONS ─── -->
+    <div class="page" id="page-sessions">
+      <div class="page-header">
+        <div class="breadcrumb">
+          <span class="breadcrumb-item">Control</span>
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M9 18l6-6-6-6" />
+          </svg>
+          <span class="breadcrumb-item active">Sessions</span>
+        </div>
+        <h1 class="page-title">Sessions</h1>
+        <p class="page-desc">Inspect active sessions and adjust per-session defaults.</p>
+      </div>
+      <div class="page-content">
+        <div class="card">
+          <div class="card-header">
+            <div class="card-header-row">
+              <h3 class="card-title">Active Sessions</h3>
+              <button class="btn btn-outline btn-sm">Refresh</button>
+            </div>
+          </div>
+          <div class="card-body">
+            <div class="table-wrapper">
+              <table class="data-table">
+                <thead>
+                  <tr>
+                    <th>Key</th>
+                    <th>Label</th>
+                    <th>Kind</th>
+                    <th>Updated</th>
+                    <th>Tokens</th>
+                    <th>Thinking</th>
+                    <th>Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr>
+                    <td><a href="#" class="table-link" data-page="chat">agent:main:main</a></td>
+                    <td><input type="text" class="form-input form-input-sm" placeholder="(optional)"></td>
+                    <td><span class="badge">direct</span></td>
+                    <td>4m ago</td>
+                    <td>9,613 / 400,000</td>
+                    <td>
+                      <select class="form-select form-select-sm">
+                        <option selected>inherit</option>
+                        <option>off</option>
+                        <option>low</option>
+                        <option>medium</option>
+                        <option>high</option>
+                      </select>
+                    </td>
+                    <td>
+                      <button class="btn btn-danger btn-sm">Delete</button>
+                    </td>
+                  </tr>
+                  <tr>
+                    <td><a href="#" class="table-link">agent:main:cron:daily</a></td>
+                    <td><input type="text" class="form-input form-input-sm" value="Daily summary"></td>
+                    <td><span class="badge">cron</span></td>
+                    <td>2h ago</td>
+                    <td>3,200 / 400,000</td>
+                    <td>
+                      <select class="form-select form-select-sm">
+                        <option selected>inherit</option>
+                        <option>off</option>
+                        <option>low</option>
+                        <option>medium</option>
+                        <option>high</option>
+                      </select>
+                    </td>
+                    <td>
+                      <button class="btn btn-danger btn-sm">Delete</button>
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ─── PAGE: USAGE ─── -->
+    <div class="page" id="page-usage">
+      <div class="page-header">
+        <div class="breadcrumb">
+          <span class="breadcrumb-item">Control</span>
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M9 18l6-6-6-6" />
+          </svg>
+          <span class="breadcrumb-item active">Usage</span>
+        </div>
+        <h1 class="page-title">Usage</h1>
+        <p class="page-desc">See where tokens go, when sessions spike, and what drives cost.</p>
+      </div>
+      <div class="page-content">
+        <div class="card">
+          <div class="card-header">
+            <div class="card-header-row">
+              <h3 class="card-title">Filters</h3>
+              <div class="form-row">
+                <button class="btn btn-outline btn-sm">Today</button>
+                <button class="btn btn-primary btn-sm">7d</button>
+                <button class="btn btn-outline btn-sm">30d</button>
+                <button class="btn btn-primary btn-sm">Refresh</button>
+              </div>
+            </div>
+          </div>
+          <div class="card-body">
+            <div class="usage-chart-placeholder">
+              <div class="chart-bar-group">
+                <div class="chart-label">Mon</div>
+                <div class="chart-bar" style="height: 40%"></div>
+              </div>
+              <div class="chart-bar-group">
+                <div class="chart-label">Tue</div>
+                <div class="chart-bar" style="height: 65%"></div>
+              </div>
+              <div class="chart-bar-group">
+                <div class="chart-label">Wed</div>
+                <div class="chart-bar" style="height: 85%"></div>
+              </div>
+              <div class="chart-bar-group">
+                <div class="chart-label">Thu</div>
+                <div class="chart-bar" style="height: 55%"></div>
+              </div>
+              <div class="chart-bar-group">
+                <div class="chart-label">Fri</div>
+                <div class="chart-bar" style="height: 70%"></div>
+              </div>
+              <div class="chart-bar-group">
+                <div class="chart-label">Sat</div>
+                <div class="chart-bar" style="height: 30%"></div>
+              </div>
+              <div class="chart-bar-group today">
+                <div class="chart-label">Sun</div>
+                <div class="chart-bar" style="height: 20%"></div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="stats-grid" style="margin-top: 16px;">
+          <div class="stat-card">
+            <div class="stat-label">TOTAL TOKENS</div>
+            <div class="stat-value">142,580</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-label">EST. COST</div>
+            <div class="stat-value">$1.23</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-label">SESSIONS</div>
+            <div class="stat-value">12</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-label">ERRORS</div>
+            <div class="stat-value stat-success">0</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ─── PAGE: AGENTS ─── -->
+    <div class="page" id="page-agents">
+      <div class="page-header">
+        <div class="breadcrumb">
+          <span class="breadcrumb-item">Agent</span>
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M9 18l6-6-6-6" />
+          </svg>
+          <span class="breadcrumb-item active">Agents</span>
+        </div>
+        <h1 class="page-title">Agents</h1>
+        <p class="page-desc">Manage agent workspaces, tools, and identities.</p>
+      </div>
+      <div class="page-content">
+        <div class="agent-layout">
+          <div class="agent-list-panel">
+            <div class="card">
+              <div class="card-header">
+                <div class="card-header-row">
+                  <h3 class="card-title">Agents</h3>
+                  <span class="badge">1 configured</span>
+                </div>
+              </div>
+              <div class="card-body">
+                <div class="agent-list-item active">
+                  <div class="agent-avatar">m</div>
+                  <div class="agent-info">
+                    <div class="agent-name">main</div>
+                    <div class="agent-sub">main</div>
+                  </div>
+                  <span class="badge badge-accent">DEFAULT</span>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div class="agent-detail-panel">
+            <div class="card">
+              <div class="card-header">
+                <div class="card-header-row">
+                  <h3 class="card-title">main</h3>
+                  <span class="badge badge-accent">DEFAULT</span>
+                </div>
+                <p class="card-desc">Agent workspace and routing.</p>
+                <div class="tab-bar">
+                  <button class="tab-btn active">Overview</button>
+                  <button class="tab-btn">Files</button>
+                  <button class="tab-btn">Tools</button>
+                  <button class="tab-btn">Skills</button>
+                  <button class="tab-btn">Channels</button>
+                </div>
+              </div>
+              <div class="card-body">
+                <div class="kv-grid">
+                  <div class="kv-item">
+                    <div class="kv-label">Workspace</div>
+                    <div class="kv-value mono">~/.openclaw/workspace</div>
+                  </div>
+                  <div class="kv-item">
+                    <div class="kv-label">Primary Model</div>
+                    <div class="kv-value mono">openai-codex/gpt-5.2</div>
+                  </div>
+                  <div class="kv-item">
+                    <div class="kv-label">Identity Name</div>
+                    <div class="kv-value">Assistant</div>
+                  </div>
+                  <div class="kv-item">
+                    <div class="kv-label">Skills Filter</div>
+                    <div class="kv-value">all skills</div>
+                  </div>
+                </div>
+                <div class="form-group" style="margin-top: 20px;">
+                  <label class="form-label">Primary model</label>
+                  <select class="form-select">
+                    <option selected>openai-codex/gpt-5.2</option>
+                    <option>openai/gpt-5</option>
+                    <option>anthropic/claude-opus-4.5</option>
+                  </select>
+                </div>
+                <div class="form-row">
+                  <button class="btn btn-outline">Reload Config</button>
+                  <button class="btn btn-primary" disabled>Save</button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ─── PAGE: SKILLS ─── -->
+    <div class="page" id="page-skills">
+      <div class="page-header">
+        <div class="breadcrumb">
+          <span class="breadcrumb-item">Agent</span>
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M9 18l6-6-6-6" />
+          </svg>
+          <span class="breadcrumb-item active">Skills</span>
+        </div>
+        <h1 class="page-title">Skills</h1>
+        <p class="page-desc">Manage skill availability and API key injection.</p>
+      </div>
+      <div class="page-content">
+        <div class="card">
+          <div class="card-header">
+            <div class="card-header-row">
+              <h3 class="card-title">Skills</h3>
+              <span class="badge">50 built-in</span>
+              <button class="btn btn-outline btn-sm" style="margin-left: auto;">Refresh</button>
+            </div>
+          </div>
+          <div class="card-body">
+            <div class="form-group">
+              <input type="text" class="form-input" placeholder="🔍 Search skills…">
+            </div>
+            <div class="skills-grid">
+              <div class="skill-card">
+                <div class="skill-icon">🌐</div>
+                <div class="skill-name">web_search</div>
+                <div class="skill-desc">Search the web with Brave</div><span
+                  class="status-badge status-online">Active</span>
+              </div>
+              <div class="skill-card">
+                <div class="skill-icon">💻</div>
+                <div class="skill-name">coding_agent</div>
+                <div class="skill-desc">Write and execute code</div><span
+                  class="status-badge status-online">Active</span>
+              </div>
+              <div class="skill-card">
+                <div class="skill-icon">📄</div>
+                <div class="skill-name">file_read</div>
+                <div class="skill-desc">Read files from workspace</div><span
+                  class="status-badge status-online">Active</span>
+              </div>
+              <div class="skill-card">
+                <div class="skill-icon">✏️</div>
+                <div class="skill-name">file_write</div>
+                <div class="skill-desc">Write files to workspace</div><span
+                  class="status-badge status-online">Active</span>
+              </div>
+              <div class="skill-card">
+                <div class="skill-icon">🖼️</div>
+                <div class="skill-name">image_gen</div>
+                <div class="skill-desc">Generate images with DALL-E</div><span class="status-badge status-warning">No
+                  API key</span>
+              </div>
+              <div class="skill-card">
+                <div class="skill-icon">🎨</div>
+                <div class="skill-name">canvas</div>
+                <div class="skill-desc">Interactive canvas workspace</div><span
+                  class="status-badge status-online">Active</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ─── PAGE: NODES ─── -->
+    <div class="page" id="page-nodes">
+      <div class="page-header">
+        <div class="breadcrumb">
+          <span class="breadcrumb-item">Agent</span>
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M9 18l6-6-6-6" />
+          </svg>
+          <span class="breadcrumb-item active">Nodes</span>
+        </div>
+        <h1 class="page-title">Nodes</h1>
+        <p class="page-desc">Paired devices, capabilities, and command exposure.</p>
+      </div>
+      <div class="page-content">
+        <div class="card">
+          <div class="card-header">
+            <div class="card-header-row">
+              <h3 class="card-title">Devices</h3>
+              <button class="btn btn-outline btn-sm">Refresh</button>
+            </div>
+          </div>
+          <div class="card-body">
+            <div class="device-item">
+              <div class="device-header">
+                <span class="device-name">Game-Dev</span>
+                <span class="status-badge status-online">Online</span>
+              </div>
+              <div class="device-meta">
+                <span class="badge">gateway</span>
+                <span class="badge">windows</span>
+                <span class="badge">x64</span>
+                <span class="badge">v2026.2.4</span>
+              </div>
+            </div>
+            <div class="device-item">
+              <div class="device-header">
+                <span class="device-name">Renald-PC</span>
+                <span class="status-badge status-offline">Offline</span>
+              </div>
+              <div class="device-meta">
+                <span class="badge">node</span>
+                <span class="badge">paired</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ─── PAGE: CONFIG ─── -->
+    <div class="page" id="page-config">
+      <div class="page-header">
+        <div class="breadcrumb">
+          <span class="breadcrumb-item">Settings</span>
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M9 18l6-6-6-6" />
+          </svg>
+          <span class="breadcrumb-item active">Config</span>
+        </div>
+        <h1 class="page-title">Config</h1>
+        <p class="page-desc">Edit ~/.openclaw/openclaw.json safely.</p>
+      </div>
+      <div class="page-content">
+        <div class="config-layout">
+          <div class="config-nav">
+            <div class="config-nav-header">
+              <span class="config-valid-badge">✓ valid</span>
+              <input type="text" class="form-input form-input-sm" placeholder="Search settings…">
+            </div>
+            <div class="config-nav-list">
+              <button class="config-nav-item active">All Settings</button>
+              <button class="config-nav-item">Environment</button>
+              <button class="config-nav-item">Updates</button>
+              <button class="config-nav-item">Agents</button>
+              <button class="config-nav-item">Authentication</button>
+              <button class="config-nav-item">Channels</button>
+              <button class="config-nav-item">Messages</button>
+              <button class="config-nav-item">Commands</button>
+              <button class="config-nav-item">Hooks</button>
+              <button class="config-nav-item">Skills</button>
+              <button class="config-nav-item">Tools</button>
+              <button class="config-nav-item">Gateway</button>
+              <button class="config-nav-item">Models</button>
+              <button class="config-nav-item">Audio</button>
+              <button class="config-nav-item">Memory</button>
+              <button class="config-nav-item">Plugins</button>
+            </div>
+            <div class="config-nav-footer">
+              <button class="tab-btn active">Form</button>
+              <button class="tab-btn">Raw</button>
+            </div>
+          </div>
+          <div class="config-editor">
+            <div class="config-editor-header">
+              <span class="config-changes">No changes</span>
+              <div class="form-row">
+                <button class="btn btn-outline btn-sm">Reload</button>
+                <button class="btn btn-primary btn-sm" disabled>Save</button>
+                <button class="btn btn-outline btn-sm" disabled>Apply</button>
+              </div>
+            </div>
+            <div class="config-section">
+              <h3 class="config-section-title">Gateway</h3>
+              <p class="config-section-desc">Gateway server settings (port, auth, binding)</p>
+              <div class="form-group">
+                <label class="form-label">Bind</label>
+                <div class="btn-group">
+                  <button class="btn btn-outline btn-sm">auto</button>
+                  <button class="btn btn-outline btn-sm">lan</button>
+                  <button class="btn btn-primary btn-sm">loopback</button>
+                  <button class="btn btn-outline btn-sm">custom</button>
+                  <button class="btn btn-outline btn-sm">tailnet</button>
+                </div>
+              </div>
+              <div class="form-group">
+                <label class="form-label">Auth Mode</label>
+                <div class="btn-group">
+                  <button class="btn btn-primary btn-sm">token</button>
+                  <button class="btn btn-outline btn-sm">password</button>
+                </div>
+              </div>
+              <div class="form-group">
+                <label class="form-label">Gateway Token</label>
+                <div class="input-with-toggle">
+                  <input type="password" class="form-input" value="••••••••••••••••••••">
+                  <button class="btn-icon input-toggle-vis" title="Show token">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                      <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
+                      <circle cx="12" cy="12" r="3" />
+                    </svg>
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ─── PAGE: LOGS ─── -->
+    <div class="page" id="page-logs">
+      <div class="page-header">
+        <div class="breadcrumb">
+          <span class="breadcrumb-item">Settings</span>
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M9 18l6-6-6-6" />
+          </svg>
+          <span class="breadcrumb-item active">Logs</span>
+        </div>
+        <h1 class="page-title">Logs</h1>
+        <p class="page-desc">Live tail of the gateway file logs.</p>
+      </div>
+      <div class="page-content">
+        <div class="card">
+          <div class="card-header">
+            <div class="card-header-row">
+              <h3 class="card-title">Live Logs</h3>
+              <div class="form-row">
+                <button class="btn btn-outline btn-sm">Refresh</button>
+                <button class="btn btn-outline btn-sm">Export</button>
+              </div>
+            </div>
+          </div>
+          <div class="card-body">
+            <div class="logs-toolbar">
+              <input type="text" class="form-input form-input-sm" placeholder="Filter logs…" style="flex:1;">
+              <label class="checkbox-label"><input type="checkbox" checked> Auto-follow</label>
+              <div class="log-level-filters">
+                <label class="log-level-chip log-trace"><input type="checkbox" checked> trace</label>
+                <label class="log-level-chip log-debug"><input type="checkbox" checked> debug</label>
+                <label class="log-level-chip log-info"><input type="checkbox" checked> info</label>
+                <label class="log-level-chip log-warn"><input type="checkbox" checked> warn</label>
+                <label class="log-level-chip log-error"><input type="checkbox" checked> error</label>
+              </div>
+            </div>
+            <div class="logs-container">
+              <div class="log-entry">
+                <span class="log-time">19:10:23</span>
+                <span class="log-badge log-info">info</span>
+                <span class="log-source">gateway</span>
+                <span class="log-msg">device pairing auto-approved device=a353f6ca… role=operator</span>
+              </div>
+              <div class="log-entry">
+                <span class="log-time">19:10:23</span>
+                <span class="log-badge log-info">info</span>
+                <span class="log-source">gateway/ws</span>
+                <span class="log-msg">webchat connected conn=4fd47933… remote=127.0.0.1</span>
+              </div>
+              <div class="log-entry">
+                <span class="log-time">19:10:34</span>
+                <span class="log-badge log-debug">debug</span>
+                <span class="log-source">agent/embedded</span>
+                <span class="log-msg">embedded run start: runId=d712ad30… provider=openai-codex model=gpt-5.2</span>
+              </div>
+              <div class="log-entry">
+                <span class="log-time">19:10:35</span>
+                <span class="log-badge log-debug">debug</span>
+                <span class="log-source">diagnostic</span>
+                <span class="log-msg">session state: sessionId=f676d61f… prev=idle new=processing</span>
+              </div>
+              <div class="log-entry">
+                <span class="log-time">19:10:39</span>
+                <span class="log-badge log-debug">debug</span>
+                <span class="log-source">agent/embedded</span>
+                <span class="log-msg">embedded run done: runId=d712ad30… durationMs=4760 aborted=false</span>
+              </div>
+              <div class="log-entry">
+                <span class="log-time">19:12:19</span>
+                <span class="log-badge log-warn">warn</span>
+                <span class="log-source">gateway/ws</span>
+                <span class="log-msg">Proxy headers detected from untrusted address. Configure
+                  gateway.trustedProxies.</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+  </main>
+
+  <!-- ═══════════════════════════════════════════════════════ -->
+  <!-- GLOBAL MODALS                                            -->
+  <!-- ═══════════════════════════════════════════════════════ -->
+
+  <!-- Confirmation modal (delete / archive chat) -->
+  <div class="confirm-modal" id="confirmModal">
+    <div class="confirm-overlay"></div>
+    <div class="confirm-panel">
+      <div class="confirm-icon" id="confirmIcon">
+        <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z" />
+          <line x1="12" y1="9" x2="12" y2="13" />
+          <line x1="12" y1="17" x2="12.01" y2="17" />
+        </svg>
+      </div>
+      <h3 class="confirm-title" id="confirmTitle">Delete conversation?</h3>
+      <p class="confirm-desc" id="confirmDesc">This action cannot be undone. The conversation and its messages will be
+        permanently removed.</p>
+      <div class="confirm-actions">
+        <button class="btn btn-outline btn-sm" id="confirmCancel">Cancel</button>
+        <button class="btn btn-danger btn-sm" id="confirmOk">Delete</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Create project modal -->
+  <div class="confirm-modal" id="createProjectModal">
+    <div class="confirm-overlay"></div>
+    <div class="confirm-panel">
+      <div class="confirm-icon confirm-icon-accent">
+        <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
+        </svg>
+      </div>
+      <h3 class="confirm-title">New project</h3>
+      <p class="confirm-desc">Group related conversations together in a project.</p>
+      <div class="create-project-field">
+        <label class="form-label" for="projectNameInput">Project name</label>
+        <input type="text" class="form-input" id="projectNameInput" placeholder="e.g. API Integration"
+          autocomplete="off">
+      </div>
+      <div class="confirm-actions">
+        <button class="btn btn-outline btn-sm" id="createProjectCancel">Cancel</button>
+        <button class="btn btn-primary btn-sm" id="createProjectOk">Create</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Delete project confirmation modal -->
+  <div class="confirm-modal" id="deleteProjectModal">
+    <div class="confirm-overlay"></div>
+    <div class="confirm-panel">
+      <div class="confirm-icon">
+        <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z" />
+          <line x1="12" y1="9" x2="12" y2="13" />
+          <line x1="12" y1="17" x2="12.01" y2="17" />
+        </svg>
+      </div>
+      <h3 class="confirm-title" id="deleteProjectTitle">Delete project?</h3>
+      <p class="confirm-desc">The project will be removed. Conversations inside will return to the main list.</p>
+      <div class="confirm-actions">
+        <button class="btn btn-outline btn-sm" id="deleteProjectCancel">Cancel</button>
+        <button class="btn btn-danger btn-sm" id="deleteProjectOk">Delete project</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+
+</html>

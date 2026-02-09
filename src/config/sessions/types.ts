@@ -93,6 +93,8 @@ export type SessionEntry = {
   lastThreadId?: string | number;
   skillsSnapshot?: SessionSkillSnapshot;
   systemPromptReport?: SessionSystemPromptReport;
+  /** Session keys linked via /joinchat — their transcripts are injected as extra context */
+  linkedSessions?: string[];
 };
 
 export function mergeSessionEntry(

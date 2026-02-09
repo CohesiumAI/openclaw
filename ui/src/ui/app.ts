@@ -2,6 +2,7 @@ import { LitElement } from "lit";
 import { customElement, state } from "lit/decorators.js";
 import type { EventLogEntry } from "./app-events.ts";
 import type { AppViewState } from "./app-view-state.ts";
+import type { SlashCommandEntry } from "./controllers/chat-commands.ts";
 import type { DevicePairingList } from "./controllers/devices.ts";
 import type { ExecApprovalRequest } from "./controllers/exec-approval.ts";
 import type { ExecApprovalsFile, ExecApprovalsSnapshot } from "./controllers/exec-approvals.ts";
@@ -44,7 +45,9 @@ import {
 } from "./app-channels.ts";
 import {
   handleAbortChat as handleAbortChatInternal,
+  handleNewSession as handleNewSessionInternal,
   handleSendChat as handleSendChatInternal,
+  refreshChatAvatar as refreshChatAvatarInternal,
   removeQueuedMessage as removeQueuedMessageInternal,
 } from "./app-chat.ts";
 import { DEFAULT_CRON_FORM, DEFAULT_LOG_LEVEL_FILTERS } from "./app-defaults.ts";
@@ -78,7 +81,9 @@ import {
 } from "./app-tool-stream.ts";
 import { resolveInjectedAssistantIdentity } from "./assistant-identity.ts";
 import { loadAssistantIdentity as loadAssistantIdentityInternal } from "./controllers/assistant-identity.ts";
-import { loadSettings, type UiSettings } from "./storage.ts";
+import { loadChatHistory as loadChatHistoryInternal } from "./controllers/chat.ts";
+import { patchSession } from "./controllers/sessions.ts";
+import { loadSettings, migrateSettings, type UiSettings } from "./storage.ts";
 import { type ChatAttachment, type ChatQueueItem, type CronFormState } from "./ui-types.ts";
 
 declare global {
@@ -104,7 +109,7 @@ function resolveOnboardingMode(): boolean {
 
 @customElement("openclaw-app")
 export class OpenClawApp extends LitElement {
-  @state() settings: UiSettings = loadSettings();
+  @state() settings: UiSettings = migrateSettings(loadSettings());
   @state() password = "";
   @state() tab: Tab = "chat";
   @state() onboarding = resolveOnboardingMode();
@@ -134,7 +139,15 @@ export class OpenClawApp extends LitElement {
   @state() compactionStatus: CompactionStatus | null = null;
   @state() chatAvatarUrl: string | null = null;
   @state() chatThinkingLevel: string | null = null;
+  @state() chatActiveToolName: string | null = null;
+  @state() voiceListening = false;
+  @state() ttsPlaying = false;
   @state() chatQueue: ChatQueueItem[] = [];
+  /** Tracks active run state per session so we can restore messages + stream on switch-back */
+  activeRunState: Map<
+    string,
+    { runId: string; messages: unknown[]; stream: string | null; toolName: string | null }
+  > = new Map();
   @state() chatAttachments: ChatAttachment[] = [];
   @state() chatManualRefreshInFlight = false;
   // Sidebar state for tool output viewing
@@ -142,6 +155,43 @@ export class OpenClawApp extends LitElement {
   @state() sidebarContent: string | null = null;
   @state() sidebarError: string | null = null;
   @state() splitRatio = this.settings.splitRatio;
+
+  // Inline message editing state
+  @state() editingMessageIndex: number | null = null;
+  @state() editingMessageText = "";
+  @state() editingAttachments: ChatAttachment[] = [];
+
+  // V2: Session previews for sidebar
+  @state() sessionsPreview: Map<string, string> = new Map();
+  // V2: Model catalog for model selector
+  @state() modelsLoading = false;
+  @state() modelsCatalog: Array<{ id: string; name?: string; provider?: string }> = [];
+  @state() modelSelectorOpen = false;
+  @state() skillsPopoverOpen = false;
+  @state() chatsPopoverOpen = false;
+  // Slash command autocomplete
+  @state() chatCommands: SlashCommandEntry[] = [];
+  @state() slashPopoverOpen = false;
+  @state() slashPopoverIndex = 0;
+
+  // V2: Settings modal state
+  @state() settingsModalOpen = false;
+  @state() archiveModalOpen = false;
+  @state() activeProjectId: string | null = null;
+  @state() projectModalOpen = false;
+  @state() projectModalEditId: string | null = null;
+  @state() searchModalOpen = false;
+  @state() searchQuery = "";
+  // V2: Context menu & confirmation modal
+  @state() contextMenuOpen = false;
+  @state() contextMenuTarget: string | null = null;
+  @state() contextMenuX = 0;
+  @state() contextMenuY = 0;
+  @state() confirmModalOpen = false;
+  @state() confirmModalTitle = "";
+  @state() confirmModalDesc = "";
+  @state() confirmModalOkLabel = "Delete";
+  @state() confirmModalAction: (() => void) | null = null;
 
   @state() nodesLoading = false;
   @state() nodes: Array<Record<string, unknown>> = [];
@@ -223,6 +273,8 @@ export class OpenClawApp extends LitElement {
   @state() sessionsLoading = false;
   @state() sessionsResult: SessionsListResult | null = null;
   @state() sessionsError: string | null = null;
+  /** Optimistic labels awaiting gateway confirmation — survive loadSessions overwrites */
+  pendingLabels: Map<string, string> = new Map();
   @state() sessionsFilterActive = "";
   @state() sessionsFilterLimit = "120";
   @state() sessionsIncludeGlobal = true;
@@ -297,6 +349,9 @@ export class OpenClawApp extends LitElement {
   @state() skillEdits: Record<string, string> = {};
   @state() skillsBusyKey: string | null = null;
   @state() skillMessages: Record<string, SkillMessage> = {};
+  // Per-session skill overrides: sessionKey → Set of enabled skill names.
+  // null = no override (all installed skills active); Set = only listed skills active.
+  @state() sessionSkillOverrides: Map<string, Set<string>> = new Map();
 
   @state() debugLoading = false;
   @state() debugStatus: StatusSummary | null = null;
@@ -409,6 +464,78 @@ export class OpenClawApp extends LitElement {
     await loadAssistantIdentityInternal(this);
   }
 
+  setPassword(next: string) {
+    this.password = next;
+  }
+
+  setSessionKey(next: string) {
+    if (next === this.sessionKey) return;
+    // Save full chat state for the session we're leaving so we can restore on switch-back
+    if (this.chatRunId) {
+      this.activeRunState.set(this.sessionKey, {
+        runId: this.chatRunId,
+        messages: this.chatMessages,
+        stream: this.chatStream,
+        toolName: this.chatActiveToolName,
+      });
+    }
+    this.sessionKey = next;
+    this.chatMessages = [];
+    this.chatMessage = "";
+    this.chatAttachments = [];
+    this.chatStream = null;
+    this.chatStreamStartedAt = null;
+    this.chatRunId = null;
+    this.chatQueue = [];
+    this.resetToolStream();
+    this.resetChatScroll();
+    this.applySettings({
+      ...this.settings,
+      sessionKey: next,
+      lastActiveSessionKey: next,
+    });
+    void this.loadAssistantIdentity();
+    void this._loadHistoryAndRestoreRun(next);
+    void refreshChatAvatarInternal(
+      this as unknown as Parameters<typeof refreshChatAvatarInternal>[0],
+    );
+  }
+
+  /** Load history then restore stream indicator if this session has an active run. */
+  private async _loadHistoryAndRestoreRun(sessionKey: string) {
+    const saved = this.activeRunState.get(sessionKey);
+    // Pre-populate with saved optimistic messages so mergeOptimisticImages
+    // can re-inject image/file blocks into the gateway-fetched messages.
+    if (saved && saved.messages.length > 0) {
+      this.chatMessages = saved.messages;
+    }
+    await loadChatHistoryInternal(this as unknown as Parameters<typeof loadChatHistoryInternal>[0]);
+    // If we switched away again during the async load, bail
+    if (this.sessionKey !== sessionKey) {
+      return;
+    }
+    if (saved && !this.chatRunId) {
+      // Only restore streaming state if the run is still active (non-empty runId).
+      // Cross-session terminal events clear runId to "" but keep messages.
+      if (saved.runId) {
+        // Gateway may not have stored the user message yet — use saved messages if they have more
+        if (saved.messages.length > this.chatMessages.length) {
+          this.chatMessages = saved.messages;
+        }
+        this.chatRunId = saved.runId;
+        this.chatStream = saved.stream ?? "";
+        this.chatStreamStartedAt = Date.now();
+        this.chatActiveToolName = saved.toolName;
+      }
+    }
+    // Consumed — clean up
+    this.activeRunState.delete(sessionKey);
+  }
+
+  setChatMessage(next: string) {
+    this.chatMessage = next;
+  }
+
   applySettings(next: UiSettings) {
     applySettingsInternal(this as unknown as Parameters<typeof applySettingsInternal>[0], next);
   }
@@ -437,6 +564,12 @@ export class OpenClawApp extends LitElement {
     removeQueuedMessageInternal(
       this as unknown as Parameters<typeof removeQueuedMessageInternal>[0],
       id,
+    );
+  }
+
+  async handleNewSession() {
+    await handleNewSessionInternal(
+      this as unknown as Parameters<typeof handleNewSessionInternal>[0],
     );
   }
 
@@ -563,6 +696,29 @@ export class OpenClawApp extends LitElement {
     const newRatio = Math.max(0.4, Math.min(0.7, ratio));
     this.splitRatio = newRatio;
     this.applySettings({ ...this.settings, splitRatio: newRatio });
+  }
+
+  /** Patch current session model via sessions.patch + optimistic UI update */
+  handleModelChange(modelId: string) {
+    if (!this.client || !this.connected || !this.sessionKey) {
+      return;
+    }
+    // Optimistic UI: split provider/model so resolveSessionModel reads correct values
+    const session = this.sessionsResult?.sessions?.find((s) => s.key === this.sessionKey);
+    if (session) {
+      const slashIdx = modelId.indexOf("/");
+      if (slashIdx > 0) {
+        session.modelProvider = modelId.slice(0, slashIdx);
+        session.model = modelId.slice(slashIdx + 1);
+      } else {
+        session.model = modelId;
+      }
+      this.sessionsResult = { ...this.sessionsResult! };
+    }
+    // Persist + reload (loadSessions confirms or corrects the optimistic value)
+    void patchSession(this as unknown as Parameters<typeof patchSession>[0], this.sessionKey, {
+      model: modelId,
+    });
   }
 
   render() {

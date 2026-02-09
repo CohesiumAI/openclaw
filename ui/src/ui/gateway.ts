@@ -98,7 +98,10 @@ export class GatewayBrowserClient {
     this.ws.addEventListener("open", () => this.queueConnect());
     this.ws.addEventListener("message", (ev) => this.handleMessage(String(ev.data ?? "")));
     this.ws.addEventListener("close", (ev) => {
-      const reason = String(ev.reason ?? "");
+      const reason =
+        ev.code === 1009
+          ? "Message too large — try a smaller file attachment"
+          : String(ev.reason ?? "");
       this.ws = null;
       this.flushPending(new Error(`gateway closed (${ev.code}): ${reason}`));
       this.opts.onClose?.({ code: ev.code, reason });
@@ -208,7 +211,7 @@ export class GatewayBrowserClient {
       role,
       scopes,
       device,
-      caps: [],
+      caps: ["tool-events"],
       auth,
       userAgent: navigator.userAgent,
       locale: navigator.language,

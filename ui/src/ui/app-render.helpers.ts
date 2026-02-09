@@ -364,3 +364,27 @@ function renderMonitorIcon() {
     </svg>
   `;
 }
+
+/** Simple moon/sun icon button for the chat header (mockup V2 style) */
+export function renderSimpleThemeToggle(state: AppViewState) {
+  const isDark = state.themeResolved === "dark";
+  const nextTheme: ThemeMode = isDark ? "light" : "dark";
+  return html`
+    <button
+      class="btn-icon"
+      @click=${(event: MouseEvent) => {
+        const element = event.currentTarget as HTMLElement;
+        const context: ThemeTransitionContext = { element };
+        if (event.clientX || event.clientY) {
+          context.pointerClientX = event.clientX;
+          context.pointerClientY = event.clientY;
+        }
+        state.setTheme(nextTheme, context);
+      }}
+      title="${isDark ? "Switch to light theme" : "Switch to dark theme"}"
+      aria-label="${isDark ? "Light theme" : "Dark theme"}"
+    >
+      ${isDark ? renderSunIcon() : renderMoonIcon()}
+    </button>
+  `;
+}

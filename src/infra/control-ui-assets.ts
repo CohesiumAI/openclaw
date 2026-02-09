@@ -6,6 +6,7 @@ import { defaultRuntime, type RuntimeEnv } from "../runtime.js";
 import { resolveOpenClawPackageRoot, resolveOpenClawPackageRootSync } from "./openclaw-root.js";
 
 const CONTROL_UI_DIST_PATH_SEGMENTS = ["dist", "control-ui", "index.html"] as const;
+const CONTROL_UI_V2_DIST_PATH_SEGMENTS = ["dist", "control-ui-v2", "index.html"] as const;
 
 export function resolveControlUiDistIndexPathForRoot(root: string): string {
   return path.join(root, ...CONTROL_UI_DIST_PATH_SEGMENTS);
@@ -191,6 +192,56 @@ export function resolveControlUiRootSync(opts: ControlUiRootResolveOptions = {})
   return null;
 }
 
+// --- V2 asset resolution (mirrors V1 but targets dist/control-ui-v2) ---
+
+export function resolveControlUiV2DistIndexPathForRoot(root: string): string {
+  return path.join(root, ...CONTROL_UI_V2_DIST_PATH_SEGMENTS);
+}
+
+export function resolveControlUiV2RootSync(opts: ControlUiRootResolveOptions = {}): string | null {
+  const candidates = new Set<string>();
+  const argv1 = opts.argv1 ?? process.argv[1];
+  const cwd = opts.cwd ?? process.cwd();
+  const moduleDir = opts.moduleUrl ? path.dirname(fileURLToPath(opts.moduleUrl)) : null;
+  const argv1Dir = argv1 ? path.dirname(path.resolve(argv1)) : null;
+  const execDir = (() => {
+    try {
+      const execPath = opts.execPath ?? process.execPath;
+      return path.dirname(fs.realpathSync(execPath));
+    } catch {
+      return null;
+    }
+  })();
+  const packageRoot = resolveOpenClawPackageRootSync({
+    argv1,
+    moduleUrl: opts.moduleUrl,
+    cwd,
+  });
+
+  addCandidate(candidates, execDir ? path.join(execDir, "control-ui-v2") : null);
+  if (moduleDir) {
+    addCandidate(candidates, path.join(moduleDir, "control-ui-v2"));
+    addCandidate(candidates, path.join(moduleDir, "../control-ui-v2"));
+    addCandidate(candidates, path.join(moduleDir, "../../dist/control-ui-v2"));
+  }
+  if (argv1Dir) {
+    addCandidate(candidates, path.join(argv1Dir, "dist", "control-ui-v2"));
+    addCandidate(candidates, path.join(argv1Dir, "control-ui-v2"));
+  }
+  if (packageRoot) {
+    addCandidate(candidates, path.join(packageRoot, "dist", "control-ui-v2"));
+  }
+  addCandidate(candidates, path.join(cwd, "dist", "control-ui-v2"));
+
+  for (const dir of candidates) {
+    const indexPath = path.join(dir, "index.html");
+    if (fs.existsSync(indexPath)) {
+      return dir;
+    }
+  }
+  return null;
+}
+
 export type EnsureControlUiAssetsResult = {
   ok: boolean;
   built: boolean;
@@ -248,9 +299,9 @@ export async function ensureControlUiAssetsBuilt(
     };
   }
 
-  runtime.log("Control UI assets missing; building (ui:build, auto-installs UI deps)…");
+  runtime.log("Control UI V1 assets missing; building from main branch (ui:build-v1)…");
 
-  const build = await runCommandWithTimeout([process.execPath, uiScript, "build"], {
+  const build = await runCommandWithTimeout([process.execPath, uiScript, "build-v1"], {
     cwd: repoRoot,
     timeoutMs: opts?.timeoutMs ?? 10 * 60_000,
   });
@@ -267,6 +318,68 @@ export async function ensureControlUiAssetsBuilt(
       ok: false,
       built: true,
       message: `Control UI build completed but ${indexPath} is still missing.`,
+    };
+  }
+
+  return { ok: true, built: true };
+}
+
+export async function ensureControlUiV2AssetsBuilt(
+  runtime: RuntimeEnv = defaultRuntime,
+  opts?: { timeoutMs?: number },
+): Promise<EnsureControlUiAssetsResult> {
+  const repoRoot = resolveControlUiRepoRoot(process.argv[1]);
+
+  // V2 assets already present — check via resolveControlUiV2RootSync first
+  const existing = resolveControlUiV2RootSync({
+    argv1: process.argv[1],
+    cwd: process.cwd(),
+  });
+  if (existing) {
+    return { ok: true, built: false };
+  }
+
+  if (!repoRoot) {
+    return {
+      ok: false,
+      built: false,
+      message: "Missing Control UI V2 assets. Build them with `pnpm ui:build-v2`.",
+    };
+  }
+
+  const indexPath = resolveControlUiV2DistIndexPathForRoot(repoRoot);
+  if (fs.existsSync(indexPath)) {
+    return { ok: true, built: false };
+  }
+
+  const uiScript = path.join(repoRoot, "scripts", "ui.js");
+  if (!fs.existsSync(uiScript)) {
+    return {
+      ok: false,
+      built: false,
+      message: `Control UI V2 assets missing but ${uiScript} is unavailable.`,
+    };
+  }
+
+  runtime.log("Control UI V2 assets missing; building (ui:build-v2)…");
+
+  const build = await runCommandWithTimeout([process.execPath, uiScript, "build-v2"], {
+    cwd: repoRoot,
+    timeoutMs: opts?.timeoutMs ?? 10 * 60_000,
+  });
+  if (build.code !== 0) {
+    return {
+      ok: false,
+      built: false,
+      message: `Control UI V2 build failed: ${summarizeCommandOutput(build.stderr) ?? `exit ${build.code}`}`,
+    };
+  }
+
+  if (!fs.existsSync(indexPath)) {
+    return {
+      ok: false,
+      built: true,
+      message: `Control UI V2 build completed but ${indexPath} is still missing.`,
     };
   }
 

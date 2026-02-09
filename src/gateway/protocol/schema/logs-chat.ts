@@ -39,6 +39,7 @@ export const ChatSendParamsSchema = Type.Object(
     deliver: Type.Optional(Type.Boolean()),
     attachments: Type.Optional(Type.Array(Type.Unknown())),
     timeoutMs: Type.Optional(Type.Integer({ minimum: 0 })),
+    skillFilter: Type.Optional(Type.Array(NonEmptyString)),
     idempotencyKey: NonEmptyString,
   },
   { additionalProperties: false },
@@ -57,6 +58,14 @@ export const ChatInjectParamsSchema = Type.Object(
     sessionKey: NonEmptyString,
     message: NonEmptyString,
     label: Type.Optional(Type.String({ maxLength: 100 })),
+  },
+  { additionalProperties: false },
+);
+
+export const ChatTruncateParamsSchema = Type.Object(
+  {
+    sessionKey: NonEmptyString,
+    afterIndex: Type.Integer({ minimum: 0 }),
   },
   { additionalProperties: false },
 );

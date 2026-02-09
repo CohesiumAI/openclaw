@@ -22,8 +22,10 @@ import { applyPluginAutoEnable } from "../config/plugin-auto-enable.js";
 import { clearAgentRunContext, onAgentEvent } from "../infra/agent-events.js";
 import {
   ensureControlUiAssetsBuilt,
+  ensureControlUiV2AssetsBuilt,
   resolveControlUiRootOverrideSync,
   resolveControlUiRootSync,
+  resolveControlUiV2RootSync,
 } from "../infra/control-ui-assets.js";
 import { isDiagnosticsEnabled } from "../infra/diagnostic-events.js";
 import { logAcceptedEnvOption } from "../infra/env.js";
@@ -301,6 +303,30 @@ export async function startGatewayServer(
       : { kind: "missing" };
   }
 
+  // Resolve V2 UI assets (best-effort; V2 is optional)
+  let controlUiV2RootState: ControlUiRootState | undefined;
+  if (controlUiEnabled) {
+    let resolvedV2Root = resolveControlUiV2RootSync({
+      moduleUrl: import.meta.url,
+      argv1: process.argv[1],
+      cwd: process.cwd(),
+    });
+    if (!resolvedV2Root) {
+      const ensureV2 = await ensureControlUiV2AssetsBuilt(gatewayRuntime);
+      if (!ensureV2.ok && ensureV2.message) {
+        log.warn(`gateway: ${ensureV2.message}`);
+      }
+      resolvedV2Root = resolveControlUiV2RootSync({
+        moduleUrl: import.meta.url,
+        argv1: process.argv[1],
+        cwd: process.cwd(),
+      });
+    }
+    controlUiV2RootState = resolvedV2Root
+      ? { kind: "resolved", path: resolvedV2Root }
+      : { kind: "missing" };
+  }
+
   const wizardRunner = opts.wizardRunner ?? runOnboardingWizard;
   const { wizardSessions, findRunningWizard, purgeWizardSession } = createWizardSessionTracker();
 
@@ -335,6 +361,7 @@ export async function startGatewayServer(
     controlUiEnabled,
     controlUiBasePath,
     controlUiRoot: controlUiRootState,
+    controlUiV2Root: controlUiV2RootState,
     openAiChatCompletionsEnabled,
     openResponsesEnabled,
     openResponsesConfig,

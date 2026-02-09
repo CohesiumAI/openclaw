@@ -17,6 +17,7 @@ import {
   syncTabWithLocation,
   syncThemeWithSettings,
 } from "./app-settings.ts";
+import { onTtsPlayingChange } from "./app-tts.ts";
 
 type LifecycleHost = {
   basePath: string;
@@ -32,6 +33,17 @@ type LifecycleHost = {
   logsEntries: unknown[];
   popStateHandler: () => void;
   topbarObserver: ResizeObserver | null;
+  // V2 modal state
+  searchModalOpen: boolean;
+  searchQuery: string;
+  settingsModalOpen: boolean;
+  modelSelectorOpen: boolean;
+  skillsPopoverOpen: boolean;
+  contextMenuOpen: boolean;
+  settings: { navCollapsed: boolean; [k: string]: unknown };
+  applySettings: (next: Record<string, unknown>) => void;
+  _keydownHandler?: (e: KeyboardEvent) => void;
+  _clickHandler?: (e: MouseEvent) => void;
 };
 
 export function handleConnected(host: LifecycleHost) {
@@ -41,6 +53,46 @@ export function handleConnected(host: LifecycleHost) {
   syncThemeWithSettings(host as unknown as Parameters<typeof syncThemeWithSettings>[0]);
   attachThemeListener(host as unknown as Parameters<typeof attachThemeListener>[0]);
   window.addEventListener("popstate", host.popStateHandler);
+
+  // Auto-collapse sidebar on narrow viewports (tablet/mobile)
+  if (window.innerWidth <= 1100 && !host.settings.navCollapsed) {
+    host.applySettings({ ...host.settings, navCollapsed: true });
+  }
+
+  // Cmd+K / Ctrl+K to open search, Escape to close modals
+  host._keydownHandler = (e: KeyboardEvent) => {
+    if ((e.metaKey || e.ctrlKey) && e.key === "k") {
+      e.preventDefault();
+      host.searchModalOpen = !host.searchModalOpen;
+      host.searchQuery = "";
+    }
+    if (e.key === "Escape") {
+      if (host.searchModalOpen) {
+        host.searchModalOpen = false;
+        e.preventDefault();
+      } else if (host.settingsModalOpen) {
+        host.settingsModalOpen = false;
+        e.preventDefault();
+      } else if (host.modelSelectorOpen) {
+        host.modelSelectorOpen = false;
+        e.preventDefault();
+      } else if (host.skillsPopoverOpen) {
+        host.skillsPopoverOpen = false;
+        e.preventDefault();
+      }
+    }
+  };
+  window.addEventListener("keydown", host._keydownHandler);
+
+  // Close context menu on outside click
+  host._clickHandler = () => {
+    if (host.contextMenuOpen) host.contextMenuOpen = false;
+  };
+  window.addEventListener("click", host._clickHandler);
+  // Wire TTS playing state to the host for visual feedback
+  onTtsPlayingChange((playing) => {
+    (host as unknown as { ttsPlaying: boolean }).ttsPlaying = playing;
+  });
   connectGateway(host as unknown as Parameters<typeof connectGateway>[0]);
   startNodesPolling(host as unknown as Parameters<typeof startNodesPolling>[0]);
   if (host.tab === "logs") {
@@ -57,6 +109,12 @@ export function handleFirstUpdated(host: LifecycleHost) {
 
 export function handleDisconnected(host: LifecycleHost) {
   window.removeEventListener("popstate", host.popStateHandler);
+  if (host._keydownHandler) {
+    window.removeEventListener("keydown", host._keydownHandler);
+  }
+  if (host._clickHandler) {
+    window.removeEventListener("click", host._clickHandler);
+  }
   stopNodesPolling(host as unknown as Parameters<typeof stopNodesPolling>[0]);
   stopLogsPolling(host as unknown as Parameters<typeof stopLogsPolling>[0]);
   stopDebugPolling(host as unknown as Parameters<typeof stopDebugPolling>[0]);

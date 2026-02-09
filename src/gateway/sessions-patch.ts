@@ -332,6 +332,21 @@ export async function applySessionsPatchToStore(params: {
     }
   }
 
+  if ("linkedSessions" in patch) {
+    const raw = (patch as Record<string, unknown>).linkedSessions;
+    if (raw === null) {
+      delete next.linkedSessions;
+    } else if (Array.isArray(raw)) {
+      const keys = raw.filter((k): k is string => typeof k === "string" && k.trim().length > 0);
+      if (keys.length === 0) {
+        delete next.linkedSessions;
+      } else {
+        // Deduplicate and prevent self-linking
+        next.linkedSessions = [...new Set(keys.filter((k) => k !== storeKey))];
+      }
+    }
+  }
+
   store[storeKey] = next;
   return { ok: true, entry: next };
 }

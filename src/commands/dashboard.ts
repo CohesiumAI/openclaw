@@ -32,11 +32,12 @@ export async function dashboardCommand(
     basePath,
   });
   // Prefer URL fragment to avoid leaking auth tokens via query params.
-  const dashboardUrl = token
-    ? `${links.httpUrl}#token=${encodeURIComponent(token)}`
-    : links.httpUrl;
+  const tokenFrag = token ? `#token=${encodeURIComponent(token)}` : "";
+  const dashboardUrl = `${links.httpUrl}${tokenFrag}`;
+  const dashboardUrlV2 = `${links.httpUrlV2}${tokenFrag}`;
 
   runtime.log(`Dashboard URL: ${dashboardUrl}`);
+  runtime.log(`Dashboard V2 URL: ${dashboardUrlV2}`);
 
   const copied = await copyToClipboard(dashboardUrl).catch(() => false);
   runtime.log(copied ? "Copied to clipboard." : "Copy to clipboard unavailable.");

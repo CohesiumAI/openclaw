@@ -146,6 +146,8 @@ export async function ensureSkillSnapshot(params: {
   ensureSkillsWatcher({ workspaceDir, config: cfg });
   const shouldRefreshSnapshot =
     snapshotVersion > 0 && (nextEntry?.skillsSnapshot?.version ?? 0) < snapshotVersion;
+  // Per-request skillFilter overrides cached snapshot (e.g. UI per-session skill toggle)
+  const hasSkillFilter = skillFilter !== undefined;
 
   if (isFirstTurnInSession && sessionStore && sessionKey) {
     const current = nextEntry ??
@@ -154,7 +156,7 @@ export async function ensureSkillSnapshot(params: {
         updatedAt: Date.now(),
       };
     const skillSnapshot =
-      isFirstTurnInSession || !current.skillsSnapshot || shouldRefreshSnapshot
+      isFirstTurnInSession || !current.skillsSnapshot || shouldRefreshSnapshot || hasSkillFilter
         ? buildWorkspaceSkillSnapshot(workspaceDir, {
             config: cfg,
             skillFilter,
@@ -178,7 +180,7 @@ export async function ensureSkillSnapshot(params: {
     systemSent = true;
   }
 
-  const skillsSnapshot = shouldRefreshSnapshot
+  const skillsSnapshot = (shouldRefreshSnapshot || hasSkillFilter)
     ? buildWorkspaceSkillSnapshot(workspaceDir, {
         config: cfg,
         skillFilter,

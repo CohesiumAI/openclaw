@@ -50,6 +50,54 @@ const DEFAULT_EDGE_VOICE = "en-US-MichelleNeural";
 const DEFAULT_EDGE_LANG = "en-US";
 const DEFAULT_EDGE_OUTPUT_FORMAT = "audio-24khz-48kbitrate-mono-mp3";
 
+// Default Edge TTS voices per locale (female preferred for consistency)
+const EDGE_VOICES_BY_LANG: Record<string, { voice: string; lang: string }> = {
+  "fr-FR": { voice: "fr-FR-DeniseNeural", lang: "fr-FR" },
+  fr: { voice: "fr-FR-DeniseNeural", lang: "fr-FR" },
+  "de-DE": { voice: "de-DE-KatjaNeural", lang: "de-DE" },
+  de: { voice: "de-DE-KatjaNeural", lang: "de-DE" },
+  "es-ES": { voice: "es-ES-ElviraNeural", lang: "es-ES" },
+  es: { voice: "es-ES-ElviraNeural", lang: "es-ES" },
+  "it-IT": { voice: "it-IT-ElsaNeural", lang: "it-IT" },
+  it: { voice: "it-IT-ElsaNeural", lang: "it-IT" },
+  "pt-BR": { voice: "pt-BR-FranciscaNeural", lang: "pt-BR" },
+  "pt-PT": { voice: "pt-PT-RaquelNeural", lang: "pt-PT" },
+  pt: { voice: "pt-BR-FranciscaNeural", lang: "pt-BR" },
+  "ja-JP": { voice: "ja-JP-NanamiNeural", lang: "ja-JP" },
+  ja: { voice: "ja-JP-NanamiNeural", lang: "ja-JP" },
+  "ko-KR": { voice: "ko-KR-SunHiNeural", lang: "ko-KR" },
+  ko: { voice: "ko-KR-SunHiNeural", lang: "ko-KR" },
+  "zh-CN": { voice: "zh-CN-XiaoxiaoNeural", lang: "zh-CN" },
+  "zh-TW": { voice: "zh-TW-HsiaoChenNeural", lang: "zh-TW" },
+  zh: { voice: "zh-CN-XiaoxiaoNeural", lang: "zh-CN" },
+  "nl-NL": { voice: "nl-NL-ColetteNeural", lang: "nl-NL" },
+  nl: { voice: "nl-NL-ColetteNeural", lang: "nl-NL" },
+  "ru-RU": { voice: "ru-RU-SvetlanaNeural", lang: "ru-RU" },
+  ru: { voice: "ru-RU-SvetlanaNeural", lang: "ru-RU" },
+  "pl-PL": { voice: "pl-PL-AgnieszkaNeural", lang: "pl-PL" },
+  pl: { voice: "pl-PL-AgnieszkaNeural", lang: "pl-PL" },
+  "ar-SA": { voice: "ar-SA-ZariyahNeural", lang: "ar-SA" },
+  ar: { voice: "ar-SA-ZariyahNeural", lang: "ar-SA" },
+  "en-US": { voice: "en-US-MichelleNeural", lang: "en-US" },
+  "en-GB": { voice: "en-GB-SoniaNeural", lang: "en-GB" },
+  en: { voice: "en-US-MichelleNeural", lang: "en-US" },
+};
+
+/** Resolve Edge TTS voice and lang from a browser locale string (e.g. "fr-FR", "fr"). */
+function resolveEdgeVoiceForLang(lang: string): { voice: string; lang: string } | undefined {
+  const normalized = lang.trim();
+  // Try exact match first (e.g. "fr-FR")
+  if (EDGE_VOICES_BY_LANG[normalized]) {
+    return EDGE_VOICES_BY_LANG[normalized];
+  }
+  // Try base language (e.g. "fr")
+  const base = normalized.split("-")[0]?.toLowerCase();
+  if (base && EDGE_VOICES_BY_LANG[base]) {
+    return EDGE_VOICES_BY_LANG[base];
+  }
+  return undefined;
+}
+
 const DEFAULT_ELEVENLABS_VOICE_SETTINGS = {
   stability: 0.5,
   similarityBoost: 0.75,
@@ -1163,6 +1211,7 @@ export async function textToSpeech(params: {
   cfg: OpenClawConfig;
   prefsPath?: string;
   channel?: string;
+  lang?: string;
   overrides?: TtsDirectiveOverrides;
 }): Promise<TtsResult> {
   const config = resolveTtsConfig(params.cfg);
@@ -1198,6 +1247,12 @@ export async function textToSpeech(params: {
         const fallbackEdgeOutputFormat =
           edgeOutputFormat !== DEFAULT_EDGE_OUTPUT_FORMAT ? DEFAULT_EDGE_OUTPUT_FORMAT : undefined;
 
+        // Override Edge voice/lang when caller provides a browser locale
+        const edgeLangOverride = params.lang ? resolveEdgeVoiceForLang(params.lang) : undefined;
+        const edgeConfig = edgeLangOverride
+          ? { ...config.edge, voice: edgeLangOverride.voice, lang: edgeLangOverride.lang }
+          : config.edge;
+
         const attemptEdgeTts = async (outputFormat: string) => {
           const extension = inferEdgeExtension(outputFormat);
           const audioPath = path.join(tempDir, `voice-${Date.now()}${extension}`);
@@ -1205,7 +1260,7 @@ export async function textToSpeech(params: {
             text: params.text,
             outputPath: audioPath,
             config: {
-              ...config.edge,
+              ...edgeConfig,
               outputFormat,
             },
             timeoutMs: config.timeoutMs,
@@ -1272,6 +1327,8 @@ export async function textToSpeech(params: {
         const seedOverride = params.overrides?.elevenlabs?.seed;
         const normalizationOverride = params.overrides?.elevenlabs?.applyTextNormalization;
         const languageOverride = params.overrides?.elevenlabs?.languageCode;
+        // Use caller lang as fallback for ElevenLabs languageCode
+        const effectiveLangCode = languageOverride ?? config.elevenlabs.languageCode ?? params.lang;
         audioBuffer = await elevenLabsTTS({
           text: params.text,
           apiKey,
@@ -1281,7 +1338,7 @@ export async function textToSpeech(params: {
           outputFormat: output.elevenlabs,
           seed: seedOverride ?? config.elevenlabs.seed,
           applyTextNormalization: normalizationOverride ?? config.elevenlabs.applyTextNormalization,
-          languageCode: languageOverride ?? config.elevenlabs.languageCode,
+          languageCode: effectiveLangCode,
           voiceSettings,
           timeoutMs: config.timeoutMs,
         });

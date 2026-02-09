@@ -32,6 +32,7 @@ type ToolStreamHost = {
   toolStreamOrder: string[];
   chatToolMessages: Record<string, unknown>[];
   toolStreamSyncTimer: number | null;
+  chatActiveToolName: string | null;
 };
 
 function extractToolOutputText(value: unknown): string | null {
@@ -158,6 +159,7 @@ export function resetToolStream(host: ToolStreamHost) {
   host.toolStreamById.clear();
   host.toolStreamOrder = [];
   host.chatToolMessages = [];
+  host.chatActiveToolName = null;
   flushToolStreamSync(host);
 }
 
@@ -277,5 +279,7 @@ export function handleAgentEvent(host: ToolStreamHost, payload?: AgentEventPaylo
 
   entry.message = buildToolStreamMessage(entry);
   trimToolStream(host);
+  // Expose the latest active tool name for the "working" indicator
+  host.chatActiveToolName = phase === "result" ? null : entry.name;
   scheduleToolStreamSync(host, phase === "result");
 }

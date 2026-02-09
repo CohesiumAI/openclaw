@@ -18,6 +18,134 @@
   background: rgba(16, 24, 40, 0.04);
 }
 
+/* Collapsible thinking block */
+.thinking-block {
+  margin-bottom: 10px;
+  border-radius: 10px;
+  border: 1px dashed rgba(255, 255, 255, 0.18);
+  background: rgba(255, 255, 255, 0.04);
+  overflow: hidden;
+}
+
+:root[data-theme="light"] .thinking-block {
+  border-color: rgba(16, 24, 40, 0.25);
+  background: rgba(16, 24, 40, 0.04);
+}
+
+.thinking-toggle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  padding: 8px 12px;
+  background: none;
+  border: none;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: color .15s;
+}
+
+.thinking-toggle:hover {
+  color: var(--text);
+}
+
+.thinking-chevron {
+  margin-left: auto;
+  transition: transform .2s;
+}
+
+.thinking-block:not(.collapsed) .thinking-chevron {
+  transform: rotate(180deg);
+}
+
+.thinking-content {
+  padding: 0 12px 10px;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.thinking-block.collapsed .thinking-content {
+  display: none;
+}
+
+/* Message action buttons — visible on group hover */
+.message-actions {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  margin-left: auto;
+  opacity: 0;
+  transition: opacity .15s;
+}
+
+.chat-group:hover .message-actions {
+  opacity: 1;
+}
+
+.msg-action-btn {
+  background: none;
+  border: none;
+  color: var(--muted);
+  cursor: pointer;
+  padding: 4px;
+  border-radius: var(--radius-sm, 4px);
+  display: inline-flex;
+  align-items: center;
+  transition: background .1s, color .1s;
+}
+
+.msg-action-btn:hover {
+  background: var(--bg-hover);
+  color: var(--text);
+}
+
+.msg-action-btn.tts-playing {
+  color: var(--accent);
+  background: var(--accent-subtle);
+}
+
+.msg-action-btn.tts-playing:hover {
+  background: var(--accent-subtle);
+  color: var(--accent-hover);
+}
+
+/* Inline edit for user messages */
+.chat-inline-edit {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px;
+}
+
+.chat-inline-edit__textarea {
+  width: 100%;
+  min-height: 60px;
+  max-height: 200px;
+  resize: vertical;
+  background: var(--bg-deeper, var(--bg));
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 8px;
+  font: inherit;
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+.chat-inline-edit__textarea:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.chat-inline-edit__buttons {
+  display: flex;
+  gap: 4px;
+  justify-content: flex-end;
+}
+
 .chat-text {
   font-size: 14px;
   line-height: 1.5;

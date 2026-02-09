@@ -188,6 +188,38 @@
   animation-delay: 0.4s;
 }
 
+.chat-reading-indicator__label {
+  margin-left: 8px;
+  font-size: 0.8rem;
+  color: var(--text-muted, #888);
+  font-style: italic;
+  white-space: nowrap;
+}
+
+.chat-reading-indicator__stop {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  margin-left: 6px;
+  padding: 2px;
+  border: none;
+  border-radius: 3px;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.15s, color 0.15s, background 0.15s;
+}
+
+.chat-reading-indicator:hover .chat-reading-indicator__stop {
+  opacity: 1;
+}
+
+.chat-reading-indicator__stop:hover {
+  background: var(--border);
+  color: var(--text);
+}
+
 @keyframes reading-pulse {
   0%,
   60%,

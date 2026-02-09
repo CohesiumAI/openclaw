@@ -1,3 +1,4 @@
+import path from "node:path";
 import type { GatewayRequestHandlers } from "./types.js";
 import { loadConfig } from "../../config/config.js";
 import {
@@ -79,10 +80,13 @@ export const ttsHandlers: GatewayRequestHandlers = {
     try {
       const cfg = loadConfig();
       const channel = typeof params.channel === "string" ? params.channel.trim() : undefined;
-      const result = await textToSpeech({ text, cfg, channel });
+      const lang = typeof params.lang === "string" ? params.lang.trim() : undefined;
+      const result = await textToSpeech({ text, cfg, channel, lang });
       if (result.success && result.audioPath) {
+        const filename = path.basename(result.audioPath);
         respond(true, {
           audioPath: result.audioPath,
+          audioUrl: `/__openclaw__/tts/${encodeURIComponent(filename)}`,
           provider: result.provider,
           outputFormat: result.outputFormat,
           voiceCompatible: result.voiceCompatible,
