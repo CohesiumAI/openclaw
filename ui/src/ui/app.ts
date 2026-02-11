@@ -1,7 +1,7 @@
 import { LitElement } from "lit";
 import { customElement, state } from "lit/decorators.js";
 import type { EventLogEntry } from "./app-events.ts";
-import type { AppViewState } from "./app-view-state.ts";
+import type { AppViewState, AuthStatus } from "./app-view-state.ts";
 import type { SlashCommandEntry } from "./controllers/chat-commands.ts";
 import type { DevicePairingList } from "./controllers/devices.ts";
 import type { ExecApprovalRequest } from "./controllers/exec-approval.ts";
@@ -80,6 +80,7 @@ import {
   type CompactionStatus,
 } from "./app-tool-stream.ts";
 import { resolveInjectedAssistantIdentity } from "./assistant-identity.ts";
+import { login as authLogin, logout as authLogout } from "./auth.ts";
 import { loadAssistantIdentity as loadAssistantIdentityInternal } from "./controllers/assistant-identity.ts";
 import { loadChatHistory as loadChatHistoryInternal } from "./controllers/chat.ts";
 import { patchSession } from "./controllers/sessions.ts";
@@ -114,6 +115,12 @@ export class OpenClawApp extends LitElement {
   @state() tab: Tab = "chat";
   @state() onboarding = resolveOnboardingMode();
   @state() connected = false;
+  @state() authStatus: AuthStatus = "loading";
+  @state() authUser: { username: string; role: string } | null = null;
+  @state() loginUsername = "";
+  @state() loginPassword = "";
+  @state() loginError: string | null = null;
+  @state() loginLoading = false;
   @state() theme: ThemeMode = this.settings.theme ?? "system";
   @state() themeResolved: ResolvedTheme = "dark";
   @state() hello: GatewayHelloOk | null = null;
@@ -464,12 +471,46 @@ export class OpenClawApp extends LitElement {
     await loadAssistantIdentityInternal(this);
   }
 
+  async handleLogin() {
+    if (this.loginLoading) {
+      return;
+    }
+    this.loginLoading = true;
+    this.loginError = null;
+    const result = await authLogin(this.loginUsername, this.loginPassword, this.basePath);
+    this.loginLoading = false;
+    if (result.status === "authenticated") {
+      this.authStatus = "authenticated";
+      this.authUser = { username: result.user.username, role: result.user.role };
+      this.loginPassword = "";
+      this.loginError = null;
+      connectGatewayInternal(this as unknown as Parameters<typeof connectGatewayInternal>[0]);
+    } else if (result.status === "error") {
+      this.loginError = result.message;
+    }
+  }
+
+  async handleLogout() {
+    await authLogout(this.basePath);
+    this.client?.stop();
+    this.client = null;
+    this.connected = false;
+    this.hello = null;
+    this.authStatus = "unauthenticated";
+    this.authUser = null;
+    this.loginUsername = "";
+    this.loginPassword = "";
+    this.loginError = null;
+  }
+
   setPassword(next: string) {
     this.password = next;
   }
 
   setSessionKey(next: string) {
-    if (next === this.sessionKey) return;
+    if (next === this.sessionKey) {
+      return;
+    }
     // Save full chat state for the session we're leaving so we can restore on switch-back
     if (this.chatRunId) {
       this.activeRunState.set(this.sessionKey, {

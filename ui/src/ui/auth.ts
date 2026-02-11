@@ -13,6 +13,7 @@ export type AuthState =
   | { status: "loading" }
   | { status: "authenticated"; user: AuthUser; csrfToken: string }
   | { status: "unauthenticated" }
+  | { status: "no-auth" }
   | { status: "error"; message: string };
 
 let csrfToken: string | null = null;
@@ -37,9 +38,15 @@ export async function checkAuth(basePath = ""): Promise<AuthState> {
       csrfToken = data.csrfToken;
       return { status: "authenticated", user: data.user, csrfToken: data.csrfToken };
     }
-    return { status: "unauthenticated" };
+    // 401 = auth configured, user not logged in
+    if (res.status === 401) {
+      return { status: "unauthenticated" };
+    }
+    // 404 or other = no auth endpoints on this gateway
+    return { status: "no-auth" };
   } catch {
-    return { status: "unauthenticated" };
+    // Network error — gateway may not have auth configured
+    return { status: "no-auth" };
   }
 }
 

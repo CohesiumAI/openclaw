@@ -10,7 +10,9 @@ import {
   listGatewayUsers,
   resolveGatewayUsersPath,
   updateGatewayUserPassword,
+  updateGatewayUserRecoveryCode,
   updateGatewayUserRole,
+  updateGatewayUsername,
 } from "./auth-credentials.js";
 
 function makeTmpDir(): string {
@@ -98,5 +100,64 @@ describe("auth-credentials", () => {
   it("deleteGatewayUser returns false for unknown user", () => {
     tmpDir = makeTmpDir();
     expect(deleteGatewayUser("nobody", tmpDir)).toBe(false);
+  });
+
+  it("createGatewayUser stores recoveryCodeHash when provided", () => {
+    tmpDir = makeTmpDir();
+    const ok = createGatewayUser(
+      {
+        username: "admin",
+        passwordHash: "$scrypt$p",
+        role: "admin",
+        recoveryCodeHash: "$scrypt$r",
+      },
+      tmpDir,
+    );
+    expect(ok).toBe(true);
+    const user = getGatewayUser("admin", tmpDir);
+    expect(user!.recoveryCodeHash).toBe("$scrypt$r");
+  });
+
+  it("createGatewayUser omits recoveryCodeHash when not provided", () => {
+    tmpDir = makeTmpDir();
+    createGatewayUser({ username: "admin", passwordHash: "$scrypt$p", role: "admin" }, tmpDir);
+    const user = getGatewayUser("admin", tmpDir);
+    expect(user!.recoveryCodeHash).toBeUndefined();
+  });
+
+  it("updateGatewayUserRecoveryCode updates the hash", () => {
+    tmpDir = makeTmpDir();
+    createGatewayUser({ username: "admin", passwordHash: "$scrypt$p", role: "admin" }, tmpDir);
+    const ok = updateGatewayUserRecoveryCode("admin", "$scrypt$newcode", tmpDir);
+    expect(ok).toBe(true);
+    expect(getGatewayUser("admin", tmpDir)!.recoveryCodeHash).toBe("$scrypt$newcode");
+  });
+
+  it("updateGatewayUserRecoveryCode returns false for unknown user", () => {
+    tmpDir = makeTmpDir();
+    expect(updateGatewayUserRecoveryCode("nobody", "$scrypt$x", tmpDir)).toBe(false);
+  });
+
+  it("updateGatewayUsername renames the user", () => {
+    tmpDir = makeTmpDir();
+    createGatewayUser({ username: "alice", passwordHash: "$scrypt$p", role: "admin" }, tmpDir);
+    const ok = updateGatewayUsername("alice", "bob", tmpDir);
+    expect(ok).toBe(true);
+    expect(getGatewayUser("alice", tmpDir)).toBeNull();
+    expect(getGatewayUser("bob", tmpDir)!.username).toBe("bob");
+  });
+
+  it("updateGatewayUsername rejects if new name is taken", () => {
+    tmpDir = makeTmpDir();
+    createGatewayUser({ username: "alice", passwordHash: "$scrypt$p", role: "admin" }, tmpDir);
+    createGatewayUser({ username: "bob", passwordHash: "$scrypt$p", role: "operator" }, tmpDir);
+    const ok = updateGatewayUsername("alice", "bob", tmpDir);
+    expect(ok).toBe(false);
+    expect(getGatewayUser("alice", tmpDir)).not.toBeNull();
+  });
+
+  it("updateGatewayUsername returns false for unknown user", () => {
+    tmpDir = makeTmpDir();
+    expect(updateGatewayUsername("nobody", "newname", tmpDir)).toBe(false);
   });
 });

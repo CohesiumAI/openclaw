@@ -36,6 +36,8 @@ import type { ChatAttachment, ChatQueueItem, CronFormState } from "./ui-types.ts
 import type { NostrProfileFormState } from "./views/channels.nostr-profile-form.ts";
 import type { SessionLogEntry } from "./views/usage.ts";
 
+export type AuthStatus = "loading" | "authenticated" | "unauthenticated" | "no-auth";
+
 export type AppViewState = {
   settings: UiSettings;
   password: string;
@@ -43,6 +45,15 @@ export type AppViewState = {
   onboarding: boolean;
   basePath: string;
   connected: boolean;
+  /** Auth gate status — controls whether login screen or main UI is shown. */
+  authStatus: AuthStatus;
+  authUser: { username: string; role: string } | null;
+  loginUsername: string;
+  loginPassword: string;
+  loginError: string | null;
+  loginLoading: boolean;
+  handleLogin: () => Promise<void>;
+  handleLogout: () => Promise<void>;
   theme: ThemeMode;
   themeResolved: "light" | "dark";
   hello: GatewayHelloOk | null;

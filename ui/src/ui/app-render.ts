@@ -89,6 +89,7 @@ import { renderDebug } from "./views/debug.ts";
 import { renderExecApprovalPrompt } from "./views/exec-approval.ts";
 import { renderGatewayUrlConfirmation } from "./views/gateway-url-confirmation.ts";
 import { renderInstances } from "./views/instances.ts";
+import { renderLoginView } from "./views/login.ts";
 import { renderLogs } from "./views/logs.ts";
 import { renderNodes } from "./views/nodes.ts";
 import { renderOverview } from "./views/overview.ts";
@@ -263,6 +264,55 @@ async function truncateAndResend(state: AppViewState, assistantStartIndex: numbe
 }
 
 export function renderApp(state: AppViewState) {
+  // Auth gate: loading spinner
+  if (state.authStatus === "loading") {
+    return html`
+      <div class="auth-loading"><div class="auth-loading-spinner"></div></div>
+      <style>
+        .auth-loading {
+          position: fixed;
+          inset: 0;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          background: var(--bg-primary, #0a0a0a);
+          z-index: 9999;
+        }
+        .auth-loading-spinner {
+          width: 32px;
+          height: 32px;
+          border: 3px solid var(--border-color, #333);
+          border-top-color: var(--accent-color, #3b82f6);
+          border-radius: 50%;
+          animation: auth-spin 0.6s linear infinite;
+        }
+        @keyframes auth-spin {
+          to {
+            transform: rotate(360deg);
+          }
+        }
+      </style>
+    `;
+  }
+  // Auth gate: login screen
+  if (state.authStatus === "unauthenticated") {
+    return renderLoginView({
+      username: state.loginUsername,
+      password: state.loginPassword,
+      error: state.loginError,
+      loading: state.loginLoading,
+      onUsernameChange: (v) => {
+        state.loginUsername = v;
+      },
+      onPasswordChange: (v) => {
+        state.loginPassword = v;
+      },
+      onSubmit: () => {
+        void state.handleLogin();
+      },
+    });
+  }
+
   const presenceCount = state.presenceEntries.length;
   const sessionsCount = state.sessionsResult?.count ?? null;
   const cronNext = state.cronStatus?.nextWakeAtMs ?? null;
@@ -294,6 +344,22 @@ export function renderApp(state: AppViewState) {
             <span class="sidebar-logo">🦞</span>
             <span class="sidebar-brand-name">OpenClaw</span>
             <span class="sidebar-health-dot ${state.connected ? "ok" : ""}" title="${state.connected ? "Connected" : "Offline"}"></span>
+            ${
+              state.authStatus === "authenticated"
+                ? html`
+              <button
+                class="btn-icon sidebar-logout-btn"
+                @click=${() => {
+                  void state.handleLogout();
+                }}
+                title="Sign out (${state.authUser?.username ?? ""})"
+                aria-label="Sign out"
+              >
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
+              </button>
+            `
+                : ""
+            }
           </div>
           <button
             class="btn-icon sidebar-toggle-btn"

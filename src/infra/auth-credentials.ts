@@ -13,6 +13,8 @@ export type GatewayUser = {
   username: string;
   passwordHash: string;
   role: GatewayUserRole;
+  /** Hashed numeric recovery code (4-12 digits) for password reset. */
+  recoveryCodeHash?: string;
   createdAt: number;
   updatedAt: number;
 };
@@ -65,7 +67,12 @@ export function getGatewayUser(username: string, stateDir?: string): GatewayUser
 
 /** Create a new gateway user. Returns false if username already exists. */
 export function createGatewayUser(
-  params: { username: string; passwordHash: string; role: GatewayUserRole },
+  params: {
+    username: string;
+    passwordHash: string;
+    role: GatewayUserRole;
+    recoveryCodeHash?: string;
+  },
   stateDir?: string,
 ): boolean {
   const filePath = resolveGatewayUsersPath(stateDir);
@@ -75,13 +82,17 @@ export function createGatewayUser(
     return false;
   }
   const now = Date.now();
-  data.users.push({
+  const user: GatewayUser = {
     username: params.username.trim(),
     passwordHash: params.passwordHash,
     role: params.role,
     createdAt: now,
     updatedAt: now,
-  });
+  };
+  if (params.recoveryCodeHash) {
+    user.recoveryCodeHash = params.recoveryCodeHash;
+  }
+  data.users.push(user);
   saveUsersFile(filePath, data);
   return true;
 }
@@ -134,6 +145,48 @@ export function deleteGatewayUser(username: string, stateDir?: string): boolean 
     return false;
   }
   data.users.splice(idx, 1);
+  saveUsersFile(filePath, data);
+  return true;
+}
+
+/** Update recovery code hash for an existing user. Returns false if user not found. */
+export function updateGatewayUserRecoveryCode(
+  username: string,
+  recoveryCodeHash: string,
+  stateDir?: string,
+): boolean {
+  const filePath = resolveGatewayUsersPath(stateDir);
+  const data = loadUsersFile(filePath);
+  const normalized = username.trim().toLowerCase();
+  const user = data.users.find((u) => u.username.toLowerCase() === normalized);
+  if (!user) {
+    return false;
+  }
+  user.recoveryCodeHash = recoveryCodeHash;
+  user.updatedAt = Date.now();
+  saveUsersFile(filePath, data);
+  return true;
+}
+
+/** Update username for an existing user. Returns false if user not found or new name taken. */
+export function updateGatewayUsername(
+  currentUsername: string,
+  newUsername: string,
+  stateDir?: string,
+): boolean {
+  const filePath = resolveGatewayUsersPath(stateDir);
+  const data = loadUsersFile(filePath);
+  const currentNorm = currentUsername.trim().toLowerCase();
+  const newNorm = newUsername.trim().toLowerCase();
+  if (currentNorm !== newNorm && data.users.some((u) => u.username.toLowerCase() === newNorm)) {
+    return false;
+  }
+  const user = data.users.find((u) => u.username.toLowerCase() === currentNorm);
+  if (!user) {
+    return false;
+  }
+  user.username = newUsername.trim();
+  user.updatedAt = Date.now();
   saveUsersFile(filePath, data);
   return true;
 }

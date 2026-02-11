@@ -1,3 +1,4 @@
+import type { AuthStatus } from "./app-view-state.ts";
 import type { Tab } from "./navigation.ts";
 import { connectGateway } from "./app-gateway.ts";
 import {
@@ -18,6 +19,7 @@ import {
   syncThemeWithSettings,
 } from "./app-settings.ts";
 import { onTtsPlayingChange } from "./app-tts.ts";
+import { checkAuth } from "./auth.ts";
 
 type LifecycleHost = {
   basePath: string;
@@ -33,6 +35,9 @@ type LifecycleHost = {
   logsEntries: unknown[];
   popStateHandler: () => void;
   topbarObserver: ResizeObserver | null;
+  // Auth gate
+  authStatus: AuthStatus;
+  authUser: { username: string; role: string } | null;
   // V2 modal state
   searchModalOpen: boolean;
   searchQuery: string;
@@ -86,20 +91,40 @@ export function handleConnected(host: LifecycleHost) {
 
   // Close context menu on outside click
   host._clickHandler = () => {
-    if (host.contextMenuOpen) host.contextMenuOpen = false;
+    if (host.contextMenuOpen) {
+      host.contextMenuOpen = false;
+    }
   };
   window.addEventListener("click", host._clickHandler);
   // Wire TTS playing state to the host for visual feedback
   onTtsPlayingChange((playing) => {
     (host as unknown as { ttsPlaying: boolean }).ttsPlaying = playing;
   });
-  connectGateway(host as unknown as Parameters<typeof connectGateway>[0]);
+  void checkAuthAndConnect(host);
   startNodesPolling(host as unknown as Parameters<typeof startNodesPolling>[0]);
   if (host.tab === "logs") {
     startLogsPolling(host as unknown as Parameters<typeof startLogsPolling>[0]);
   }
   if (host.tab === "debug") {
     startDebugPolling(host as unknown as Parameters<typeof startDebugPolling>[0]);
+  }
+}
+
+/** Check /auth/me before connecting the gateway WS. */
+async function checkAuthAndConnect(host: LifecycleHost) {
+  host.authStatus = "loading";
+  const result = await checkAuth(host.basePath);
+  if (result.status === "authenticated") {
+    host.authStatus = "authenticated";
+    host.authUser = { username: result.user.username, role: result.user.role };
+    connectGateway(host as unknown as Parameters<typeof connectGateway>[0]);
+  } else if (result.status === "unauthenticated") {
+    // /auth/me returned 401 — gateway has auth configured, show login
+    host.authStatus = "unauthenticated";
+  } else {
+    // Network error or 404 — no auth configured, connect directly
+    host.authStatus = "no-auth";
+    connectGateway(host as unknown as Parameters<typeof connectGateway>[0]);
   }
 }
 
