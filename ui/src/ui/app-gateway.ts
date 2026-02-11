@@ -29,6 +29,7 @@ import {
 } from "./controllers/exec-approval.ts";
 import { loadModels } from "./controllers/models.ts";
 import { loadNodes } from "./controllers/nodes.ts";
+import { setProjectFilesGatewayClient } from "./controllers/project-files-client.ts";
 import { loadSessions } from "./controllers/sessions.ts";
 import { loadSkills } from "./controllers/skills.ts";
 import { GatewayBrowserClient } from "./gateway.ts";
@@ -155,6 +156,8 @@ export function connectGateway(host: GatewayHost) {
       void loadSkills(host as unknown as OpenClawApp);
       void loadChatCommands(host as unknown as OpenClawApp);
       void refreshActiveTab(host as unknown as Parameters<typeof refreshActiveTab>[0]);
+      // Register gateway client for server-side file storage
+      setProjectFilesGatewayClient(host.client);
       // Sync user data from server (merge server → local on connect)
       if (host.client) {
         const syncClient = host.client;
@@ -173,6 +176,7 @@ export function connectGateway(host: GatewayHost) {
       }
     },
     onClose: ({ code, reason }) => {
+      setProjectFilesGatewayClient(null);
       host.connected = false;
       // Code 1012 = Service Restart (expected during config saves, don't show as error)
       if (code !== 1012) {

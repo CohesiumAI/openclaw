@@ -1,4 +1,10 @@
-/** IndexedDB wrapper for project file binary storage (base64 dataUrls). */
+/**
+ * Project file binary storage.
+ * Primary: gateway WS (server-side, cross-browser sync).
+ * Fallback: IndexedDB (offline / unauthenticated).
+ */
+
+import { getProjectFilesGatewayClient } from "./project-files-client.ts";
 
 const DB_NAME = "openclaw-project-files";
 const DB_VERSION = 1;
@@ -33,6 +39,21 @@ export async function putProjectFile(
   dataUrl: string,
   fileName: string,
 ): Promise<void> {
+  // Try server-side storage first
+  const gwClient = getProjectFilesGatewayClient();
+  if (gwClient) {
+    try {
+      await gwClient.request("user.projects.files.put", {
+        projectId,
+        fileId,
+        fileName,
+        dataUrl,
+      });
+      return;
+    } catch {
+      // Fall through to IndexedDB
+    }
+  }
   const db = await openDb();
   return new Promise((resolve, reject) => {
     const tx = db.transaction(STORE_NAME, "readwrite");
@@ -47,6 +68,21 @@ export async function getProjectFile(
   projectId: string,
   fileId: string,
 ): Promise<{ dataUrl: string; fileName: string } | null> {
+  // Try server-side retrieval first
+  const gwClient = getProjectFilesGatewayClient();
+  if (gwClient) {
+    try {
+      const res = await gwClient.request<{ dataUrl: string; fileName: string }>(
+        "user.projects.files.get",
+        { projectId, fileId },
+      );
+      if (res?.dataUrl) {
+        return { dataUrl: res.dataUrl, fileName: res.fileName };
+      }
+    } catch {
+      // Fall through to IndexedDB
+    }
+  }
   const db = await openDb();
   return new Promise((resolve, reject) => {
     const tx = db.transaction(STORE_NAME, "readonly");
@@ -63,6 +99,16 @@ export async function getProjectFile(
 export async function removeProjectFiles(projectId: string, fileIds: string[]): Promise<void> {
   if (fileIds.length === 0) {
     return;
+  }
+  // Try server-side deletion first
+  const gwClient = getProjectFilesGatewayClient();
+  if (gwClient) {
+    try {
+      await gwClient.request("user.projects.files.delete", { projectId, fileIds });
+      return;
+    } catch {
+      // Fall through to IndexedDB
+    }
   }
   const db = await openDb();
   return new Promise((resolve, reject) => {
@@ -175,6 +221,8 @@ export async function importChatFilesIntoProject(
 
 /** Remove all files for an entire project (used when deleting a project). */
 export async function removeAllProjectFiles(projectId: string): Promise<void> {
+  // Server-side: project deletion already cleans up files via user.projects.delete
+  // Still clean up any local IndexedDB remnants
   const db = await openDb();
   return new Promise((resolve, reject) => {
     const tx = db.transaction(STORE_NAME, "readwrite");
