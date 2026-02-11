@@ -1,5 +1,6 @@
 import type { TlsOptions } from "node:tls";
 import type { WebSocketServer } from "ws";
+import { timingSafeEqual } from "node:crypto";
 import {
   createServer as createHttpServer,
   type Server as HttpServer,
@@ -127,6 +128,14 @@ async function authorizeCanvasRequest(params: {
   return hasAuthorizedWsClientForIp(clients, clientIp);
 }
 
+/** Constant-time string comparison to prevent timing attacks on secret tokens. */
+function safeTokenEqual(a: string, b: string): boolean {
+  if (a.length !== b.length) {
+    return false;
+  }
+  return timingSafeEqual(Buffer.from(a), Buffer.from(b));
+}
+
 export type HooksRequestHandler = (req: IncomingMessage, res: ServerResponse) => Promise<boolean>;
 
 export function createHooksRequestHandler(
@@ -159,7 +168,7 @@ export function createHooksRequestHandler(
     }
 
     const token = extractHookToken(req);
-    if (!token || token !== hooksConfig.token) {
+    if (!token || !safeTokenEqual(token, hooksConfig.token)) {
       res.statusCode = 401;
       res.setHeader("Content-Type", "text/plain; charset=utf-8");
       res.end("Unauthorized");

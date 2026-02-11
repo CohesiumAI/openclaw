@@ -7,7 +7,7 @@ import {
   type GatewayUserRole,
 } from "../infra/auth-credentials.js";
 import { readTailscaleWhoisIdentity, type TailscaleWhoisIdentity } from "../infra/tailscale.js";
-import { verifyPassword } from "./auth-password.js";
+import { DUMMY_PASSWORD_HASH, verifyPassword } from "./auth-password.js";
 import {
   isLoopbackAddress,
   isTrustedProxyAddress,
@@ -285,12 +285,10 @@ export async function authorizeGatewayConnect(params: {
     if (auth.useHashedCredentials) {
       const username = connectAuth?.username ?? "admin";
       const user = getGatewayUser(username);
-      if (!user) {
-        return { ok: false, reason: "user_not_found" };
-      }
-      const valid = await verifyPassword(password, user.passwordHash);
-      if (!valid) {
-        return { ok: false, reason: "password_mismatch" };
+      // Always run scrypt to prevent user-enumeration timing oracle
+      const valid = await verifyPassword(password, user?.passwordHash ?? DUMMY_PASSWORD_HASH);
+      if (!user || !valid) {
+        return { ok: false, reason: user ? "password_mismatch" : "user_not_found" };
       }
       return { ok: true, method: "password", user: user.username, role: user.role };
     }
