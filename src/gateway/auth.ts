@@ -1,7 +1,13 @@
 import type { IncomingMessage } from "node:http";
 import { timingSafeEqual } from "node:crypto";
 import type { GatewayAuthConfig, GatewayTailscaleMode } from "../config/config.js";
+import {
+  getGatewayUser,
+  hasGatewayUsers,
+  type GatewayUserRole,
+} from "../infra/auth-credentials.js";
 import { readTailscaleWhoisIdentity, type TailscaleWhoisIdentity } from "../infra/tailscale.js";
+import { verifyPassword } from "./auth-password.js";
 import {
   isLoopbackAddress,
   isTrustedProxyAddress,
@@ -13,7 +19,10 @@ export type ResolvedGatewayAuthMode = "token" | "password";
 export type ResolvedGatewayAuth = {
   mode: ResolvedGatewayAuthMode;
   token?: string;
+  /** Legacy plaintext password (from config). */
   password?: string;
+  /** When true, password mode uses hashed credentials from gateway-users.json. */
+  useHashedCredentials: boolean;
   allowTailscale: boolean;
 };
 
@@ -21,12 +30,14 @@ export type GatewayAuthResult = {
   ok: boolean;
   method?: "token" | "password" | "tailscale" | "device-token";
   user?: string;
+  role?: GatewayUserRole;
   reason?: string;
 };
 
 type ConnectAuth = {
   token?: string;
   password?: string;
+  username?: string;
 };
 
 type TailscaleUser = {
@@ -199,10 +210,15 @@ export function resolveGatewayAuth(params: {
   const mode: ResolvedGatewayAuth["mode"] = authConfig.mode ?? (password ? "password" : "token");
   const allowTailscale =
     authConfig.allowTailscale ?? (params.tailscaleMode === "serve" && mode !== "password");
+
+  // Hashed credentials mode: password mode + gateway-users.json has users
+  const useHashedCredentials = mode === "password" && hasGatewayUsers();
+
   return {
     mode,
     token,
     password,
+    useHashedCredentials,
     allowTailscale,
   };
 }
@@ -216,7 +232,7 @@ export function assertGatewayAuthConfigured(auth: ResolvedGatewayAuth): void {
       "gateway auth mode is token, but no token was configured (set gateway.auth.token or OPENCLAW_GATEWAY_TOKEN)",
     );
   }
-  if (auth.mode === "password" && !auth.password) {
+  if (auth.mode === "password" && !auth.useHashedCredentials && !auth.password) {
     throw new Error("gateway auth mode is password, but no password was configured");
   }
 }
@@ -261,11 +277,27 @@ export async function authorizeGatewayConnect(params: {
 
   if (auth.mode === "password") {
     const password = connectAuth?.password;
-    if (!auth.password) {
-      return { ok: false, reason: "password_missing_config" };
-    }
     if (!password) {
       return { ok: false, reason: "password_missing" };
+    }
+
+    // Hashed credentials: verify against gateway-users.json
+    if (auth.useHashedCredentials) {
+      const username = connectAuth?.username ?? "admin";
+      const user = getGatewayUser(username);
+      if (!user) {
+        return { ok: false, reason: "user_not_found" };
+      }
+      const valid = await verifyPassword(password, user.passwordHash);
+      if (!valid) {
+        return { ok: false, reason: "password_mismatch" };
+      }
+      return { ok: true, method: "password", user: user.username, role: user.role };
+    }
+
+    // Legacy plaintext comparison
+    if (!auth.password) {
+      return { ok: false, reason: "password_missing_config" };
     }
     if (!safeEqual(password, auth.password)) {
       return { ok: false, reason: "password_mismatch" };

@@ -19,12 +19,11 @@ import {
 } from "../canvas-host/a2ui.js";
 import { loadConfig } from "../config/config.js";
 import { handleSlackHttpRequest } from "../slack/http/index.js";
+import { handleAuthHttpRequest, verifyCsrf } from "./auth-http.js";
 import { authorizeGatewayConnect, isLocalDirectRequest, type ResolvedGatewayAuth } from "./auth.js";
 import {
   handleControlUiAvatarRequest,
   handleControlUiHttpRequest,
-  handleControlUiV2AvatarRequest,
-  handleControlUiV2HttpRequest,
   type ControlUiRootState,
 } from "./control-ui.js";
 import { applyHookMappings } from "./hooks-mapping.js";
@@ -282,7 +281,6 @@ export function createGatewayHttpServer(opts: {
   controlUiEnabled: boolean;
   controlUiBasePath: string;
   controlUiRoot?: ControlUiRootState;
-  controlUiV2Root?: ControlUiRootState;
   openAiChatCompletionsEnabled: boolean;
   openResponsesEnabled: boolean;
   openResponsesConfig?: import("../config/types.gateway.js").GatewayHttpResponsesConfig;
@@ -297,7 +295,6 @@ export function createGatewayHttpServer(opts: {
     controlUiEnabled,
     controlUiBasePath,
     controlUiRoot,
-    controlUiV2Root,
     openAiChatCompletionsEnabled,
     openResponsesEnabled,
     openResponsesConfig,
@@ -322,6 +319,17 @@ export function createGatewayHttpServer(opts: {
     try {
       const configSnapshot = loadConfig();
       const trustedProxies = configSnapshot.gateway?.trustedProxies ?? [];
+
+      // Auth endpoints (login/logout/me/refresh) — must run before any other handler
+      if (handleAuthHttpRequest(req, res, { trustedProxies })) {
+        return;
+      }
+
+      // CSRF check on mutative requests for session-authenticated users
+      if (!verifyCsrf(req, res)) {
+        return;
+      }
+
       if (await handleHooksRequest(req, res)) {
         return;
       }
@@ -386,27 +394,10 @@ export function createGatewayHttpServer(opts: {
         }
       }
       if (controlUiEnabled) {
-        // V2 must be checked first — its /v2 prefix is more specific than the V1 catch-all
-        if (
-          handleControlUiV2AvatarRequest(req, res, {
-            resolveAvatar: (agentId) => resolveAgentAvatar(configSnapshot, agentId),
-          })
-        ) {
-          return;
-        }
-        if (
-          handleControlUiV2HttpRequest(req, res, {
-            config: configSnapshot,
-            root: controlUiV2Root,
-          })
-        ) {
-          return;
-        }
-        // V1 (default basePath, catches remaining paths)
         if (
           handleControlUiAvatarRequest(req, res, {
             basePath: controlUiBasePath,
-            resolveAvatar: (agentId) => resolveAgentAvatar(configSnapshot, agentId),
+            resolveAvatar: (agentId: string) => resolveAgentAvatar(configSnapshot, agentId),
           })
         ) {
           return;

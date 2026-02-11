@@ -72,6 +72,7 @@ const READ_METHODS = new Set([
   "node.list",
   "node.describe",
   "chat.history",
+  "chat.commands",
 ]);
 const WRITE_METHODS = new Set([
   "send",
@@ -87,6 +88,7 @@ const WRITE_METHODS = new Set([
   "node.invoke",
   "chat.send",
   "chat.abort",
+  "chat.truncate",
   "browser.request",
 ]);
 

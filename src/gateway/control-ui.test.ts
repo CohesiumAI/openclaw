@@ -36,7 +36,10 @@ describe("handleControlUiHttpRequest", () => {
       );
       expect(handled).toBe(true);
       expect(setHeader).toHaveBeenCalledWith("X-Frame-Options", "DENY");
-      expect(setHeader).toHaveBeenCalledWith("Content-Security-Policy", "frame-ancestors 'none'");
+      expect(setHeader).toHaveBeenCalledWith(
+        "Content-Security-Policy",
+        "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; connect-src 'self' ws: wss:; img-src 'self' data: blob:; font-src 'self' data:; frame-ancestors 'none'",
+      );
     } finally {
       await fs.rm(tmp, { recursive: true, force: true });
     }

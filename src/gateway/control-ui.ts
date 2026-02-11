@@ -2,10 +2,7 @@ import type { IncomingMessage, ServerResponse } from "node:http";
 import fs from "node:fs";
 import path from "node:path";
 import type { OpenClawConfig } from "../config/config.js";
-import {
-  resolveControlUiRootSync,
-  resolveControlUiV2RootSync,
-} from "../infra/control-ui-assets.js";
+import { resolveControlUiRootSync } from "../infra/control-ui-assets.js";
 import { DEFAULT_ASSISTANT_IDENTITY, resolveAssistantIdentity } from "./assistant-identity.js";
 import {
   buildControlUiAvatarUrl,
@@ -71,8 +68,21 @@ type ControlUiAvatarMeta = {
 
 function applyControlUiSecurityHeaders(res: ServerResponse) {
   res.setHeader("X-Frame-Options", "DENY");
-  res.setHeader("Content-Security-Policy", "frame-ancestors 'none'");
+  res.setHeader(
+    "Content-Security-Policy",
+    [
+      "default-src 'self'",
+      "script-src 'self'",
+      "style-src 'self' 'unsafe-inline'",
+      "connect-src 'self' ws: wss:",
+      "img-src 'self' data: blob:",
+      "font-src 'self' data:",
+      "frame-ancestors 'none'",
+    ].join("; "),
+  );
   res.setHeader("X-Content-Type-Options", "nosniff");
+  res.setHeader("Referrer-Policy", "strict-origin-when-cross-origin");
+  res.setHeader("Strict-Transport-Security", "max-age=31536000; includeSubDomains");
 }
 
 function sendJson(res: ServerResponse, status: number, body: unknown) {
@@ -370,44 +380,4 @@ export function handleControlUiHttpRequest(
   return true;
 }
 
-// --- V2 handlers: fixed /v2 prefix, separate asset root ---
-
-const CONTROL_UI_V2_BASE_PATH = "/v2";
-
-export function handleControlUiV2AvatarRequest(
-  req: IncomingMessage,
-  res: ServerResponse,
-  opts: { resolveAvatar: (agentId: string) => ControlUiAvatarResolution },
-): boolean {
-  return handleControlUiAvatarRequest(req, res, {
-    basePath: CONTROL_UI_V2_BASE_PATH,
-    resolveAvatar: opts.resolveAvatar,
-  });
-}
-
-export function handleControlUiV2HttpRequest(
-  req: IncomingMessage,
-  res: ServerResponse,
-  opts?: { config?: OpenClawConfig; agentId?: string; root?: ControlUiRootState },
-): boolean {
-  // V2 uses a dedicated root state; fall back to resolveControlUiV2RootSync if not provided
-  const root: ControlUiRootState | undefined =
-    opts?.root ??
-    (() => {
-      const resolved = resolveControlUiV2RootSync({
-        moduleUrl: import.meta.url,
-        argv1: process.argv[1],
-        cwd: process.cwd(),
-      });
-      return resolved
-        ? { kind: "resolved" as const, path: resolved }
-        : { kind: "missing" as const };
-    })();
-
-  return handleControlUiHttpRequest(req, res, {
-    basePath: CONTROL_UI_V2_BASE_PATH,
-    config: opts?.config,
-    agentId: opts?.agentId,
-    root,
-  });
-}
+// V2 handlers removed — V2 is now the default UI served by the main handlers above.

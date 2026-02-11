@@ -25,6 +25,8 @@ import { upsertPresence } from "../../../infra/system-presence.js";
 import { loadVoiceWakeConfig } from "../../../infra/voicewake.js";
 import { rawDataToString } from "../../../infra/ws.js";
 import { isGatewayCliClient, isWebchatClient } from "../../../utils/message-channel.js";
+import { parseSessionCookie } from "../../auth-cookies.js";
+import { getAuthSession, type AuthSession } from "../../auth-sessions.js";
 import { authorizeGatewayConnect, isLocalDirectRequest } from "../../auth.js";
 import { buildDeviceAuthPayload } from "../../device-auth.js";
 import { isLoopbackAddress, isTrustedProxyAddress, resolveGatewayClientIp } from "../../net.js";
@@ -410,12 +412,26 @@ export function attachGatewayWsMessageHandler(params: {
         const allowControlUiBypass = allowInsecureControlUi || disableControlUiDeviceAuth;
         const device = disableControlUiDeviceAuth ? null : deviceRaw;
 
-        const authResult = await authorizeGatewayConnect({
-          auth: resolvedAuth,
-          connectAuth: connectParams.auth,
-          req: upgradeReq,
-          trustedProxies,
-        });
+        // HTTP session cookie auth — Control UI clients authenticated via /auth/login
+        let httpSession: AuthSession | null = null;
+        const sessionCookieId = parseSessionCookie(upgradeReq);
+        if (sessionCookieId) {
+          httpSession = getAuthSession(sessionCookieId);
+        }
+
+        const authResult = httpSession
+          ? {
+              ok: true as const,
+              method: "password" as const,
+              user: httpSession.username,
+              role: httpSession.role,
+            }
+          : await authorizeGatewayConnect({
+              auth: resolvedAuth,
+              connectAuth: connectParams.auth,
+              req: upgradeReq,
+              trustedProxies,
+            });
         let authOk = authResult.ok;
         let authMethod =
           authResult.method ?? (resolvedAuth.mode === "password" ? "password" : "token");
@@ -465,9 +481,10 @@ export function attachGatewayWsMessageHandler(params: {
           close(1008, truncateCloseReason(authMessage));
         };
         if (!device) {
-          const canSkipDevice = sharedAuthOk;
+          // HTTP session cookie auth can skip device identity (already authenticated via /auth/login)
+          const canSkipDevice = sharedAuthOk || Boolean(httpSession);
 
-          if (isControlUi && !allowControlUiBypass) {
+          if (isControlUi && !allowControlUiBypass && !httpSession) {
             const errorMessage = "control ui requires HTTPS or localhost (secure context)";
             setHandshakeState("failed");
             setCloseCause("control-ui-insecure-auth", {
