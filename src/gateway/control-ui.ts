@@ -66,7 +66,7 @@ type ControlUiAvatarMeta = {
   avatarUrl: string | null;
 };
 
-function applyControlUiSecurityHeaders(res: ServerResponse) {
+function applyControlUiSecurityHeaders(res: ServerResponse, req?: IncomingMessage) {
   res.setHeader("X-Frame-Options", "DENY");
   res.setHeader(
     "Content-Security-Policy",
@@ -82,7 +82,13 @@ function applyControlUiSecurityHeaders(res: ServerResponse) {
   );
   res.setHeader("X-Content-Type-Options", "nosniff");
   res.setHeader("Referrer-Policy", "strict-origin-when-cross-origin");
-  res.setHeader("Strict-Transport-Security", "max-age=31536000; includeSubDomains");
+  // HSTS only on secure connections — browsers ignore it over plain HTTP
+  const isSecure =
+    (req?.socket as { encrypted?: boolean } | undefined)?.encrypted ||
+    req?.headers["x-forwarded-proto"] === "https";
+  if (isSecure) {
+    res.setHeader("Strict-Transport-Security", "max-age=31536000; includeSubDomains");
+  }
 }
 
 function sendJson(res: ServerResponse, status: number, body: unknown) {
@@ -119,7 +125,7 @@ export function handleControlUiAvatarRequest(
     return false;
   }
 
-  applyControlUiSecurityHeaders(res);
+  applyControlUiSecurityHeaders(res, req);
 
   const agentIdParts = pathname.slice(pathWithBase.length).split("/").filter(Boolean);
   const agentId = agentIdParts[0] ?? "";
@@ -271,7 +277,7 @@ export function handleControlUiHttpRequest(
 
   if (!basePath) {
     if (pathname === "/ui" || pathname.startsWith("/ui/")) {
-      applyControlUiSecurityHeaders(res);
+      applyControlUiSecurityHeaders(res, req);
       respondNotFound(res);
       return true;
     }
@@ -279,7 +285,7 @@ export function handleControlUiHttpRequest(
 
   if (basePath) {
     if (pathname === basePath) {
-      applyControlUiSecurityHeaders(res);
+      applyControlUiSecurityHeaders(res, req);
       res.statusCode = 302;
       res.setHeader("Location", `${basePath}/${url.search}`);
       res.end();
@@ -290,7 +296,7 @@ export function handleControlUiHttpRequest(
     }
   }
 
-  applyControlUiSecurityHeaders(res);
+  applyControlUiSecurityHeaders(res, req);
 
   const rootState = opts?.root;
   if (rootState?.kind === "invalid") {

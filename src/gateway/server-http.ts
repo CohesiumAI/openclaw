@@ -466,6 +466,24 @@ export function attachGatewayUpgradeHandler(opts: {
           return;
         }
       }
+      // Pre-auth gate: reject non-local upgrades without session cookie in password mode.
+      // Prevents unauthenticated remote connections from consuming WS resources.
+      if (resolvedAuth.mode === "password" && resolvedAuth.useHashedCredentials) {
+        const cfgSnap = loadConfig();
+        const proxies = cfgSnap.gateway?.trustedProxies ?? [];
+        const isLocal = isLocalDirectRequest(req, proxies);
+        if (!isLocal) {
+          const { parseSessionCookie } = await import("./auth-cookies.js");
+          const { getAuthSession } = await import("./auth-sessions.js");
+          const sid = parseSessionCookie(req);
+          const hasSession = sid ? Boolean(getAuthSession(sid)) : false;
+          if (!hasSession) {
+            socket.write("HTTP/1.1 401 Unauthorized\r\nConnection: close\r\n\r\n");
+            socket.destroy();
+            return;
+          }
+        }
+      }
       wss.handleUpgrade(req, socket, head, (ws) => {
         wss.emit("connection", ws, req);
       });

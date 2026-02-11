@@ -69,7 +69,8 @@ export const UI_SETTINGS_DEFAULTS: Readonly<
 
 const REDACTED_SENTINEL = "__OPENCLAW_REDACTED__";
 
-const SENSITIVE_KEY_RE = /token|password|secret|api.?key/i;
+const SENSITIVE_KEY_RE =
+  /token|password|passwd|secret|api.?key|credential|bearer|passphrase|private.?key/i;
 
 function isSensitiveKey(key: string): boolean {
   return SENSITIVE_KEY_RE.test(key);
