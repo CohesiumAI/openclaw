@@ -3,13 +3,8 @@ import type { AppViewState } from "./app-view-state.ts";
 import type { UsageState } from "./controllers/usage.ts";
 import type { ChatAttachment } from "./ui-types.ts";
 import { parseAgentSessionKey } from "../../../src/routing/session-key.js";
-import { getSessionsActiveMinutes, refreshChat, refreshChatAvatar } from "./app-chat.ts";
-import {
-  renderChatControls,
-  renderTab,
-  renderThemeToggle,
-  renderSimpleThemeToggle,
-} from "./app-render.helpers.ts";
+import { getSessionsActiveMinutes, refreshChatAvatar } from "./app-chat.ts";
+import { renderSimpleThemeToggle } from "./app-render.helpers.ts";
 import { readAloud } from "./app-tts.ts";
 import { extractFileBlocks } from "./chat/grouped-render.ts";
 import { loadAgentFileContent, loadAgentFiles, saveAgentFile } from "./controllers/agent-files.ts";
@@ -55,6 +50,7 @@ import {
   loadSessions,
   patchSession,
 } from "./controllers/sessions.ts";
+import { loadPrefill } from "./controllers/settings-prefill.ts";
 import {
   installSkill,
   loadSkills,
@@ -64,13 +60,8 @@ import {
 } from "./controllers/skills.ts";
 import { loadUsage, loadSessionTimeSeries, loadSessionLogs } from "./controllers/usage.ts";
 import { icons } from "./icons.ts";
-import {
-  normalizeBasePath,
-  TAB_GROUPS,
-  subtitleForTab,
-  titleForTab,
-  type Tab,
-} from "./navigation.ts";
+import { normalizeBasePath, subtitleForTab, titleForTab } from "./navigation.ts";
+import { renderUnifiedSettings } from "./views/settings-unified.ts";
 
 // Module-scope debounce for usage date changes (avoids type-unsafe hacks on state object)
 let usageDateDebounceTimeout: number | null = null;
@@ -500,7 +491,17 @@ export function renderApp(state: AppViewState) {
               <button
                 class="btn-icon"
                 @click=${() => {
-                  state.settingsModalOpen = !state.settingsModalOpen;
+                  const opening = !state.settingsModalOpen;
+                  state.settingsModalOpen = opening;
+                  if (opening) {
+                    void loadPrefill({
+                      client: state.client,
+                      connected: state.connected,
+                      settings: state.settings,
+                    }).then((result) => {
+                      state.settingsPrefill = result;
+                    });
+                  }
                 }}
                 title="Settings"
               >
@@ -1789,8 +1790,8 @@ export function renderApp(state: AppViewState) {
       <!-- Search Modal (Cmd+K) -->
       ${renderSearchModal(state)}
 
-      <!-- Settings & Navigation Modal -->
-      ${renderSettingsModal(state)}
+      <!-- Settings & Navigation Modal (Unified) -->
+      ${renderUnifiedSettings(state)}
 
       <!-- Archive Modal -->
       ${renderArchiveModal(state)}
@@ -2385,284 +2386,13 @@ function renderConversationItem(
   `;
 }
 
-/** V2 settings/navigation modal — replaces the old sidebar nav */
-function renderSettingsModal(state: AppViewState) {
-  if (!state.settingsModalOpen) return nothing;
-
-  const navigateTo = (tab: Tab) => {
-    state.settingsModalOpen = false;
-    state.setTab(tab);
-  };
-
-  return html`
-    <div class="chat-settings-modal open">
-      <div class="chat-settings-overlay" @click=${() => {
-        state.settingsModalOpen = false;
-      }}></div>
-      <div class="chat-settings-panel">
-        <div class="chat-settings-header">
-          <div class="settings-brand">
-            <span class="brand-logo">🦞</span>
-            <strong>OpenClaw</strong>
-            <span class="health-dot-sm ${state.connected ? "" : "offline"}"></span>
-          </div>
-          <button class="btn-icon" @click=${() => {
-            state.settingsModalOpen = false;
-          }}>
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
-          </button>
-        </div>
-        <div class="chat-settings-body">
-          <!-- CONTROL -->
-          <div class="modal-nav-section">
-            <div class="modal-nav-label">CONTROL</div>
-            <div class="modal-nav-grid">
-              <button class="modal-nav-item" @click=${() => navigateTo("overview")}>
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>Overview
-              </button>
-              <button class="modal-nav-item" @click=${() => navigateTo("channels")}>
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 11a9 9 0 0 1 9 9"/><path d="M4 4a16 16 0 0 1 16 16"/><circle cx="5" cy="19" r="1"/></svg>Channels
-              </button>
-              <button class="modal-nav-item" @click=${() => navigateTo("sessions")}>
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/></svg>Sessions
-              </button>
-              <button class="modal-nav-item" @click=${() => navigateTo("usage")}>
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 20V10"/><path d="M12 20V4"/><path d="M6 20v-6"/></svg>Usage
-              </button>
-            </div>
-          </div>
-
-          <!-- AGENT -->
-          <div class="modal-nav-section">
-            <div class="modal-nav-label">AGENT</div>
-            <div class="modal-nav-grid">
-              <button class="modal-nav-item" @click=${() => navigateTo("agents")}>
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="4" y="4" width="16" height="16" rx="2"/><path d="M9 9h6m-6 4h6m-6 4h4"/></svg>Agents
-              </button>
-              <button class="modal-nav-item" @click=${() => navigateTo("skills")}>
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>Skills
-              </button>
-              <button class="modal-nav-item" @click=${() => navigateTo("nodes")}>
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="2" width="20" height="8" rx="2"/><rect x="2" y="14" width="20" height="8" rx="2"/></svg>Nodes
-              </button>
-            </div>
-          </div>
-
-          <!-- SETTINGS -->
-          <div class="modal-nav-section">
-            <div class="modal-nav-label">SETTINGS</div>
-            <div class="modal-nav-grid">
-              <button class="modal-nav-item" @click=${() => navigateTo("config")}>
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>Config
-              </button>
-              <button class="modal-nav-item" @click=${() => navigateTo("logs")}>
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>Logs
-              </button>
-              <button class="modal-nav-item" @click=${() => {
-                state.settingsModalOpen = false;
-                state.archiveModalOpen = true;
-              }}>
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="21 8 21 21 3 21 3 8"/><rect x="1" y="3" width="22" height="5"/><line x1="10" y1="12" x2="14" y2="12"/></svg>Archives
-              </button>
-              <a class="modal-nav-item" href="https://docs.openclaw.ai/" target="_blank" rel="noreferrer">
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/></svg>Docs ↗
-              </a>
-            </div>
-          </div>
-
-          <div class="modal-separator"></div>
-
-          <!-- CHAT SETTINGS -->
-          <div class="modal-nav-section">
-            <div class="modal-nav-label">CHAT SETTINGS</div>
-            <div class="settings-section">
-              <div class="settings-row">
-                <div class="settings-row-label">
-                  <svg viewBox="0 0 24 24"><path d="M12 2a7 7 0 0 0-7 7c0 2.38 1.19 4.47 3 5.74V17a2 2 0 0 0 2 2h4a2 2 0 0 0 2-2v-2.26c1.81-1.27 3-3.36 3-5.74a7 7 0 0 0-7-7z"/><line x1="9" y1="21" x2="15" y2="21"/></svg>
-                  Show thinking
-                </div>
-                <label class="toggle">
-                  <input type="checkbox" .checked=${state.settings.chatShowThinking} @change=${(
-                    e: Event,
-                  ) => {
-                    state.applySettings({
-                      ...state.settings,
-                      chatShowThinking: (e.target as HTMLInputElement).checked,
-                    });
-                  }}>
-                  <span class="toggle-slider"></span>
-                </label>
-              </div>
-              <div class="settings-row">
-                <div class="settings-row-label">
-                  <svg viewBox="0 0 24 24"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
-                  Focus mode
-                </div>
-                <label class="toggle">
-                  <input type="checkbox" .checked=${state.settings.chatFocusMode} @change=${(
-                    e: Event,
-                  ) => {
-                    state.applySettings({
-                      ...state.settings,
-                      chatFocusMode: (e.target as HTMLInputElement).checked,
-                    });
-                  }}>
-                  <span class="toggle-slider"></span>
-                </label>
-              </div>
-              <div class="settings-row">
-                <div class="settings-row-label">
-                  <svg viewBox="0 0 24 24"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M15.54 8.46a5 5 0 0 1 0 7.07"/></svg>
-                  Text-to-Speech
-                </div>
-                <label class="toggle">
-                  <input type="checkbox" .checked=${false} disabled title="Coming soon">
-                  <span class="toggle-slider"></span>
-                </label>
-              </div>
-              <div class="settings-row">
-                <div class="settings-row-label">
-                  <svg viewBox="0 0 24 24"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/></svg>
-                  Speech-to-Text
-                </div>
-                <label class="toggle">
-                  <input type="checkbox" .checked=${false} disabled title="Coming soon">
-                  <span class="toggle-slider"></span>
-                </label>
-              </div>
-              <div class="settings-row">
-                <div class="settings-row-label">
-                  <svg viewBox="0 0 24 24"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
-                  Stream responses
-                </div>
-                <label class="toggle">
-                  <input type="checkbox" .checked=${state.settings.chatStreamResponses !== false} @change=${(
-                    e: Event,
-                  ) => {
-                    state.applySettings({
-                      ...state.settings,
-                      chatStreamResponses: (e.target as HTMLInputElement).checked,
-                    });
-                  }}>
-                  <span class="toggle-slider"></span>
-                </label>
-              </div>
-              <div class="settings-row">
-                <div class="settings-row-label">
-                  <svg viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
-                  Render Markdown
-                </div>
-                <label class="toggle">
-                  <input type="checkbox" .checked=${state.settings.chatRenderMarkdown !== false} @change=${(
-                    e: Event,
-                  ) => {
-                    state.applySettings({
-                      ...state.settings,
-                      chatRenderMarkdown: (e.target as HTMLInputElement).checked,
-                    });
-                  }}>
-                  <span class="toggle-slider"></span>
-                </label>
-              </div>
-              <div class="settings-row">
-                <div class="settings-row-label">
-                  <svg viewBox="0 0 24 24"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
-                  Show default web session
-                </div>
-                <label class="toggle">
-                  <input type="checkbox" .checked=${state.settings.showDefaultWebSession} @change=${(
-                    e: Event,
-                  ) => {
-                    state.applySettings({
-                      ...state.settings,
-                      showDefaultWebSession: (e.target as HTMLInputElement).checked,
-                    });
-                  }}>
-                  <span class="toggle-slider"></span>
-                </label>
-              </div>
-            </div>
-            <div class="settings-section">
-              <label class="form-label">Chat history</label>
-              <select class="form-select form-select-sm" .value=${String(state.settings.sessionsActiveMinutes ?? 0)} @change=${(
-                e: Event,
-              ) => {
-                const val = Number((e.target as HTMLSelectElement).value);
-                state.applySettings({ ...state.settings, sessionsActiveMinutes: val });
-                void refreshChat(state as unknown as Parameters<typeof refreshChat>[0]);
-              }}>
-                <option value="0">All conversations</option>
-                <option value="120">Last 2 hours</option>
-                <option value="360">Last 6 hours</option>
-                <option value="720">Last 12 hours</option>
-                <option value="1440">Last 24 hours</option>
-                <option value="4320">Last 3 days</option>
-                <option value="10080">Last 7 days</option>
-              </select>
-            </div>
-            <div class="settings-section">
-              <label class="form-label">Thinking budget</label>
-              <select class="form-select form-select-sm" .value=${state.chatThinkingLevel || "low"} @change=${(
-                e: Event,
-              ) => {
-                const val = (e.target as HTMLSelectElement).value;
-                state.chatThinkingLevel = val;
-              }}>
-                <option value="off">off</option>
-                <option value="low">low</option>
-                <option value="medium">medium</option>
-                <option value="high">high</option>
-              </select>
-            </div>
-            <div class="settings-section">
-              <label class="form-label">Max attachment size (MB)</label>
-              <input
-                type="number"
-                class="form-select form-select-sm"
-                min="1"
-                max="100"
-                step="1"
-                .value=${String(state.settings.maxAttachmentMb ?? 25)}
-                @change=${(e: Event) => {
-                  const val = Number((e.target as HTMLInputElement).value);
-                  if (Number.isFinite(val) && val > 0) {
-                    state.applySettings({ ...state.settings, maxAttachmentMb: val });
-                  }
-                }}
-              />
-            </div>
-            <div class="settings-section">
-              <label class="form-label">Session</label>
-              <select class="form-select form-select-sm" .value=${state.sessionKey} @change=${(
-                e: Event,
-              ) => {
-                const val = (e.target as HTMLSelectElement).value;
-                if (val !== state.sessionKey) {
-                  state.sessionKey = val;
-                }
-              }}>
-                ${(state.sessionsResult?.sessions ?? []).map(
-                  (s: Record<string, unknown>) => html`
-                  <option value=${String(s.key)} ?selected=${String(s.key) === state.sessionKey}>
-                    ${String(s.key)}
-                  </option>
-                `,
-                )}
-              </select>
-            </div>
-          </div>
-          <div class="settings-footer">
-            UI V2 made with <span class="settings-footer-heart">&hearts;</span> by <a href="https://github.com/CohesiumAI/openclaw" target="_blank" rel="noreferrer">Cohesium AI</a>
-          </div>
-        </div>
-      </div>
-    </div>
-  `;
-}
+/** @deprecated Old settings modal removed — now using renderUnifiedSettings from views/settings-unified.ts */
 
 /** Archive modal — lists all archived conversations with unarchive action */
 function renderArchiveModal(state: AppViewState) {
-  if (!state.archiveModalOpen) return nothing;
+  if (!state.archiveModalOpen) {
+    return nothing;
+  }
 
   const sessions = state.sessionsResult?.sessions ?? [];
   const archivedKeys = state.settings.archivedSessionKeys;

@@ -85,6 +85,7 @@ import { login as authLogin, logout as authLogout } from "./auth.ts";
 import { loadAssistantIdentity as loadAssistantIdentityInternal } from "./controllers/assistant-identity.ts";
 import { loadChatHistory as loadChatHistoryInternal } from "./controllers/chat.ts";
 import { patchSession } from "./controllers/sessions.ts";
+import { createPrefillState, type PrefillState } from "./controllers/settings-prefill.ts";
 import { loadSettings, migrateSettings, type UiSettings } from "./storage.ts";
 import { type ChatAttachment, type ChatQueueItem, type CronFormState } from "./ui-types.ts";
 
@@ -184,6 +185,9 @@ export class OpenClawApp extends LitElement {
 
   // V2: Settings modal state
   @state() settingsModalOpen = false;
+  @state() settingsPrefill: PrefillState = createPrefillState();
+  @state() settingsActiveCategory = "quick";
+  @state() settingsSearchQuery = "";
   @state() archiveModalOpen = false;
   @state() activeProjectId: string | null = null;
   @state() projectModalOpen = false;

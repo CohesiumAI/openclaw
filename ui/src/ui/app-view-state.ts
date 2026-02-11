@@ -4,6 +4,7 @@ import type { SlashCommandEntry } from "./controllers/chat-commands.ts";
 import type { DevicePairingList } from "./controllers/devices.ts";
 import type { ExecApprovalRequest } from "./controllers/exec-approval.ts";
 import type { ExecApprovalsFile, ExecApprovalsSnapshot } from "./controllers/exec-approvals.ts";
+import type { PrefillState } from "./controllers/settings-prefill.ts";
 import type { SkillMessage } from "./controllers/skills.ts";
 import type { GatewayBrowserClient, GatewayHelloOk } from "./gateway.ts";
 import type { Tab } from "./navigation.ts";
@@ -102,6 +103,11 @@ export type AppViewState = {
   slashPopoverIndex: number;
   handleModelChange: (modelId: string) => void;
   settingsModalOpen: boolean;
+  settingsPrefill: PrefillState;
+  /** Active category in unified settings panel (e.g. "quick", "gw-agents") */
+  settingsActiveCategory: string;
+  /** Search query within unified settings panel */
+  settingsSearchQuery: string;
   archiveModalOpen: boolean;
   activeProjectId: string | null; // null=none, "__list__"=projects list, "proj-xxx"=detail
   projectModalOpen: boolean;
