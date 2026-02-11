@@ -5,7 +5,7 @@ import {
   type GatewayClientMode,
   type GatewayClientName,
 } from "../../../src/gateway/protocol/client-info.js";
-import { clearDeviceAuthToken, loadDeviceAuthToken, storeDeviceAuthToken } from "./device-auth.ts";
+// device-auth.ts is now a no-op — auth tokens handled by HttpOnly session cookies
 import { loadOrCreateDeviceIdentity, signDevicePayload } from "./device-identity.ts";
 import { generateUUID } from "./uuid.ts";
 
@@ -139,24 +139,19 @@ export class GatewayBrowserClient {
     }
 
     // crypto.subtle is only available in secure contexts (HTTPS, localhost).
-    // Over plain HTTP, we skip device identity and fall back to token-only auth.
+    // Over plain HTTP, we skip device identity and fall back to password-only auth.
     // Gateways may reject this unless gateway.controlUi.allowInsecureAuth is enabled.
     const isSecureContext = typeof crypto !== "undefined" && !!crypto.subtle;
 
     const scopes = ["operator.admin", "operator.approvals", "operator.pairing"];
     const role = "operator";
     let deviceIdentity: Awaited<ReturnType<typeof loadOrCreateDeviceIdentity>> | null = null;
-    let canFallbackToShared = false;
-    let authToken = this.opts.token;
+    // Auth tokens are no longer stored client-side — session cookies handle auth.
+    // opts.token is kept for backward compat (e.g. token-mode gateways) but never persisted.
+    const authToken = this.opts.token;
 
     if (isSecureContext) {
       deviceIdentity = await loadOrCreateDeviceIdentity();
-      const storedToken = loadDeviceAuthToken({
-        deviceId: deviceIdentity.deviceId,
-        role,
-      })?.token;
-      authToken = storedToken ?? this.opts.token;
-      canFallbackToShared = Boolean(storedToken && this.opts.token);
     }
     const auth =
       authToken || this.opts.password
@@ -219,21 +214,11 @@ export class GatewayBrowserClient {
 
     void this.request<GatewayHelloOk>("connect", params)
       .then((hello) => {
-        if (hello?.auth?.deviceToken && deviceIdentity) {
-          storeDeviceAuthToken({
-            deviceId: deviceIdentity.deviceId,
-            role: hello.auth.role ?? role,
-            token: hello.auth.deviceToken,
-            scopes: hello.auth.scopes ?? [],
-          });
-        }
+        // Device auth tokens are no longer stored — auth uses HttpOnly session cookies
         this.backoffMs = 800;
         this.opts.onHello?.(hello);
       })
       .catch(() => {
-        if (canFallbackToShared && deviceIdentity) {
-          clearDeviceAuthToken({ deviceId: deviceIdentity.deviceId, role });
-        }
         this.ws?.close(CONNECT_FAILED_CLOSE_CODE, "connect failed");
       });
   }

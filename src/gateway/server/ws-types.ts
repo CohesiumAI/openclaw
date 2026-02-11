@@ -7,4 +7,6 @@ export type GatewayWsClient = {
   connId: string;
   presenceKey?: string;
   clientIp?: string;
+  /** Authenticated username from HTTP session (password auth). */
+  authUser?: string;
 };

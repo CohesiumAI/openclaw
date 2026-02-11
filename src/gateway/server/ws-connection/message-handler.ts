@@ -900,6 +900,7 @@ export function attachGatewayWsMessageHandler(params: {
           connId,
           presenceKey,
           clientIp: reportedClientIp,
+          authUser: httpSession?.username,
         };
         setClient(nextClient);
         setHandshakeState("connected");

@@ -14,7 +14,11 @@ export type DeviceIdentity = {
   privateKey: string;
 };
 
-const STORAGE_KEY = "openclaw-device-identity-v1";
+const LEGACY_STORAGE_KEY = "openclaw-device-identity-v1";
+const IDB_NAME = "openclaw-device-identity";
+const IDB_VERSION = 1;
+const IDB_STORE = "identity";
+const IDB_KEY = "current";
 
 function base64UrlEncode(bytes: Uint8Array): string {
   let binary = "";
@@ -57,50 +61,115 @@ async function generateIdentity(): Promise<DeviceIdentity> {
   };
 }
 
-export async function loadOrCreateDeviceIdentity(): Promise<DeviceIdentity> {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if (raw) {
-      const parsed = JSON.parse(raw) as StoredIdentity;
-      if (
-        parsed?.version === 1 &&
-        typeof parsed.deviceId === "string" &&
-        typeof parsed.publicKey === "string" &&
-        typeof parsed.privateKey === "string"
-      ) {
-        const derivedId = await fingerprintPublicKey(base64UrlDecode(parsed.publicKey));
-        if (derivedId !== parsed.deviceId) {
-          const updated: StoredIdentity = {
-            ...parsed,
-            deviceId: derivedId,
-          };
-          localStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
-          return {
-            deviceId: derivedId,
-            publicKey: parsed.publicKey,
-            privateKey: parsed.privateKey,
-          };
-        }
-        return {
-          deviceId: parsed.deviceId,
-          publicKey: parsed.publicKey,
-          privateKey: parsed.privateKey,
-        };
+// --- IndexedDB helpers (private key stored in IDB, not localStorage) ---
+
+function openIdentityDb(): Promise<IDBDatabase> {
+  return new Promise((resolve, reject) => {
+    const req = indexedDB.open(IDB_NAME, IDB_VERSION);
+    req.addEventListener("upgradeneeded", () => {
+      const db = req.result;
+      if (!db.objectStoreNames.contains(IDB_STORE)) {
+        db.createObjectStore(IDB_STORE);
       }
-    }
+    });
+    req.addEventListener("success", () => resolve(req.result));
+    req.addEventListener("error", () => reject(req.error));
+  });
+}
+
+async function loadFromIdb(): Promise<StoredIdentity | null> {
+  try {
+    const db = await openIdentityDb();
+    return await new Promise((resolve) => {
+      const tx = db.transaction(IDB_STORE, "readonly");
+      const req = tx.objectStore(IDB_STORE).get(IDB_KEY);
+      req.addEventListener("success", () => {
+        const val = req.result as StoredIdentity | undefined;
+        resolve(val ?? null);
+      });
+      req.addEventListener("error", () => resolve(null));
+    });
   } catch {
-    // fall through to regenerate
+    return null;
+  }
+}
+
+async function saveToIdb(stored: StoredIdentity): Promise<void> {
+  try {
+    const db = await openIdentityDb();
+    await new Promise<void>((resolve, reject) => {
+      const tx = db.transaction(IDB_STORE, "readwrite");
+      tx.objectStore(IDB_STORE).put(stored, IDB_KEY);
+      tx.addEventListener("complete", () => resolve());
+      tx.addEventListener("error", () => reject(tx.error));
+    });
+  } catch {
+    // best-effort
+  }
+}
+
+/** Migrate legacy localStorage identity to IndexedDB, then purge localStorage. */
+async function migrateLegacyIdentity(): Promise<StoredIdentity | null> {
+  try {
+    const raw = localStorage.getItem(LEGACY_STORAGE_KEY);
+    if (!raw) {
+      return null;
+    }
+    const parsed = JSON.parse(raw) as StoredIdentity;
+    if (
+      parsed?.version === 1 &&
+      typeof parsed.deviceId === "string" &&
+      typeof parsed.publicKey === "string" &&
+      typeof parsed.privateKey === "string"
+    ) {
+      await saveToIdb(parsed);
+      localStorage.removeItem(LEGACY_STORAGE_KEY);
+      return parsed;
+    }
+    // Invalid format — purge anyway
+    localStorage.removeItem(LEGACY_STORAGE_KEY);
+  } catch {
+    // best-effort purge
+    try {
+      localStorage.removeItem(LEGACY_STORAGE_KEY);
+    } catch {
+      // ignore
+    }
+  }
+  return null;
+}
+
+export async function loadOrCreateDeviceIdentity(): Promise<DeviceIdentity> {
+  // Try IndexedDB first
+  let stored = await loadFromIdb();
+  if (!stored) {
+    // Migrate from legacy localStorage if present
+    stored = await migrateLegacyIdentity();
+  }
+  if (stored) {
+    const derivedId = await fingerprintPublicKey(base64UrlDecode(stored.publicKey));
+    if (derivedId !== stored.deviceId) {
+      const updated: StoredIdentity = { ...stored, deviceId: derivedId };
+      await saveToIdb(updated);
+      return { deviceId: derivedId, publicKey: stored.publicKey, privateKey: stored.privateKey };
+    }
+    return {
+      deviceId: stored.deviceId,
+      publicKey: stored.publicKey,
+      privateKey: stored.privateKey,
+    };
   }
 
+  // Generate new identity and store in IndexedDB
   const identity = await generateIdentity();
-  const stored: StoredIdentity = {
+  const newStored: StoredIdentity = {
     version: 1,
     deviceId: identity.deviceId,
     publicKey: identity.publicKey,
     privateKey: identity.privateKey,
     createdAtMs: Date.now(),
   };
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(stored));
+  await saveToIdb(newStored);
   return identity;
 }
 

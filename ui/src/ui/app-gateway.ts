@@ -32,6 +32,8 @@ import { loadNodes } from "./controllers/nodes.ts";
 import { loadSessions } from "./controllers/sessions.ts";
 import { loadSkills } from "./controllers/skills.ts";
 import { GatewayBrowserClient } from "./gateway.ts";
+import { syncPreferencesOnConnect } from "./preferences-sync.ts";
+import { syncProjectsOnConnect } from "./projects-sync.ts";
 
 type GatewayHost = {
   settings: UiSettings;
@@ -153,6 +155,22 @@ export function connectGateway(host: GatewayHost) {
       void loadSkills(host as unknown as OpenClawApp);
       void loadChatCommands(host as unknown as OpenClawApp);
       void refreshActiveTab(host as unknown as Parameters<typeof refreshActiveTab>[0]);
+      // Sync user data from server (merge server → local on connect)
+      if (host.client) {
+        const syncClient = host.client;
+        const syncApply = (next: UiSettings) =>
+          applySettings(host as unknown as Parameters<typeof applySettings>[0], next);
+        void syncPreferencesOnConnect({
+          client: syncClient,
+          settings: host.settings,
+          applySettings: syncApply,
+        });
+        void syncProjectsOnConnect({
+          client: syncClient,
+          settings: host.settings,
+          applySettings: syncApply,
+        });
+      }
     },
     onClose: ({ code, reason }) => {
       host.connected = false;

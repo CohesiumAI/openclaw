@@ -30,6 +30,7 @@ import {
   tabFromPath,
   type Tab,
 } from "./navigation.ts";
+import { schedulePrefSync } from "./preferences-sync.ts";
 import { saveSettings, type UiSettings } from "./storage.ts";
 import { startThemeTransition, type ThemeTransitionContext } from "./theme-transition.ts";
 import { resolveTheme, type ResolvedTheme, type ThemeMode } from "./theme.ts";
@@ -68,6 +69,9 @@ export function applySettings(host: SettingsHost, next: UiSettings) {
     applyResolvedTheme(host, resolveTheme(next.theme));
   }
   host.applySessionKey = host.settings.lastActiveSessionKey;
+  // Debounced push to gateway server (fire-and-forget)
+  const client = (host as unknown as { client?: { request: unknown } | null }).client;
+  schedulePrefSync(client as Parameters<typeof schedulePrefSync>[0], normalized);
 }
 
 export function setLastActiveSessionKey(host: SettingsHost, next: string) {
