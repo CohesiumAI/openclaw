@@ -12,6 +12,10 @@ const SCRYPT_PARALLELISM = 1;
 const KEY_LENGTH = 64;
 const SALT_LENGTH = 32;
 
+/** Pre-computed dummy hash — used to equalize timing when user is not found (prevents user enumeration). */
+export const DUMMY_PASSWORD_HASH =
+  "$scrypt$ln=14,r=8,p=1$AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA$AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
+
 /** Hash a plaintext password into a PHC-format scrypt string. */
 export async function hashPassword(plain: string): Promise<string> {
   const salt = randomBytes(SALT_LENGTH);

@@ -6,7 +6,7 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { getGatewayUser } from "../infra/auth-credentials.js";
 import { clearSessionCookie, parseSessionCookie, setSessionCookie } from "./auth-cookies.js";
-import { verifyPassword } from "./auth-password.js";
+import { DUMMY_PASSWORD_HASH, verifyPassword } from "./auth-password.js";
 import {
   createAuthSession,
   deleteAuthSession,
@@ -170,15 +170,9 @@ async function handleLogin(
   recordLoginAttempt(ip);
 
   const user = getGatewayUser(username);
-  if (!user) {
-    sendJson(res, 401, {
-      error: { message: "Invalid credentials", type: "unauthorized" },
-    });
-    return;
-  }
-
-  const valid = await verifyPassword(password, user.passwordHash);
-  if (!valid) {
+  // Always run scrypt to prevent user-enumeration timing oracle
+  const valid = await verifyPassword(password, user?.passwordHash ?? DUMMY_PASSWORD_HASH);
+  if (!user || !valid) {
     sendJson(res, 401, {
       error: { message: "Invalid credentials", type: "unauthorized" },
     });
