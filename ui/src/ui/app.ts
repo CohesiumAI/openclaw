@@ -80,6 +80,7 @@ import {
   type CompactionStatus,
 } from "./app-tool-stream.ts";
 import { resolveInjectedAssistantIdentity } from "./assistant-identity.ts";
+import { startSessionRefresh, stopSessionRefresh } from "./auth-refresh.ts";
 import { login as authLogin, logout as authLogout } from "./auth.ts";
 import { loadAssistantIdentity as loadAssistantIdentityInternal } from "./controllers/assistant-identity.ts";
 import { loadChatHistory as loadChatHistoryInternal } from "./controllers/chat.ts";
@@ -484,6 +485,7 @@ export class OpenClawApp extends LitElement {
       this.authUser = { username: result.user.username, role: result.user.role };
       this.loginPassword = "";
       this.loginError = null;
+      startSessionRefresh(this);
       connectGatewayInternal(this as unknown as Parameters<typeof connectGatewayInternal>[0]);
     } else if (result.status === "error") {
       this.loginError = result.message;
@@ -491,6 +493,7 @@ export class OpenClawApp extends LitElement {
   }
 
   async handleLogout() {
+    stopSessionRefresh();
     await authLogout(this.basePath);
     this.client?.stop();
     this.client = null;

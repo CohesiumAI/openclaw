@@ -19,6 +19,7 @@ import {
   syncThemeWithSettings,
 } from "./app-settings.ts";
 import { onTtsPlayingChange } from "./app-tts.ts";
+import { startSessionRefresh, stopSessionRefresh } from "./auth-refresh.ts";
 import { checkAuth } from "./auth.ts";
 
 type LifecycleHost = {
@@ -38,6 +39,7 @@ type LifecycleHost = {
   // Auth gate
   authStatus: AuthStatus;
   authUser: { username: string; role: string } | null;
+  handleLogout: () => Promise<void>;
   // V2 modal state
   searchModalOpen: boolean;
   searchQuery: string;
@@ -117,6 +119,7 @@ async function checkAuthAndConnect(host: LifecycleHost) {
   if (result.status === "authenticated") {
     host.authStatus = "authenticated";
     host.authUser = { username: result.user.username, role: result.user.role };
+    startSessionRefresh(host);
     connectGateway(host as unknown as Parameters<typeof connectGateway>[0]);
   } else if (result.status === "unauthenticated") {
     // /auth/me returned 401 — gateway has auth configured, show login
@@ -133,6 +136,7 @@ export function handleFirstUpdated(host: LifecycleHost) {
 }
 
 export function handleDisconnected(host: LifecycleHost) {
+  stopSessionRefresh();
   window.removeEventListener("popstate", host.popStateHandler);
   if (host._keydownHandler) {
     window.removeEventListener("keydown", host._keydownHandler);

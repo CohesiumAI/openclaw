@@ -18,6 +18,7 @@ Related docs:
 - [/gateway/bonjour](/gateway/bonjour)
 - [/gateway/discovery](/gateway/discovery)
 - [/gateway/configuration](/gateway/configuration)
+- [/cli/gateway-users](/cli/gateway-users) — manage gateway user accounts
 
 ## Run the Gateway
 

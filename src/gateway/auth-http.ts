@@ -218,7 +218,8 @@ function handleMe(req: IncomingMessage, res: ServerResponse): void {
     });
     return;
   }
-  const session = getAuthSession(sessionId);
+  // Refresh sliding window on every /auth/me — proves user activity
+  const session = refreshAuthSession(sessionId);
   if (!session) {
     clearSessionCookie(res);
     sendJson(res, 401, {
@@ -226,6 +227,8 @@ function handleMe(req: IncomingMessage, res: ServerResponse): void {
     });
     return;
   }
+  const secure = isSecureRequest(req);
+  setSessionCookie(res, session.id, { secure });
   sendJson(res, 200, {
     ok: true,
     user: {
