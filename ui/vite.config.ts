@@ -19,10 +19,9 @@ function normalizeBase(input: string): string {
 }
 
 export default defineConfig(() => {
-  const isV2 = process.env.OPENCLAW_CONTROL_UI_V2 === "1";
   const envBase = process.env.OPENCLAW_CONTROL_UI_BASE_PATH?.trim();
-  const base = envBase ? normalizeBase(envBase) : isV2 ? "/v2/" : "./";
-  const outDir = isV2 ? "../dist/control-ui-v2" : "../dist/control-ui";
+  const base = envBase ? normalizeBase(envBase) : "./";
+  const outDir = "../dist/control-ui";
   return {
     base,
     publicDir: path.resolve(here, "public"),

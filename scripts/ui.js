@@ -11,9 +11,7 @@ const uiDir = path.join(repoRoot, "ui");
 
 function usage() {
   // keep this tiny; it's invoked from npm scripts too
-  process.stderr.write(
-    "Usage: node scripts/ui.js <install|dev|dev-v2|build|build-v1|build-v2|test> [...args]\n",
-  );
+  process.stderr.write("Usage: node scripts/ui.js <install|dev|build|build-v1|test> [...args]\n");
 }
 
 function which(cmd) {
@@ -110,7 +108,6 @@ if (!runner) {
   process.exit(1);
 }
 
-const isV2Action = action === "build-v2" || action === "dev-v2";
 const script =
   action === "install"
     ? null
@@ -127,8 +124,8 @@ if (action !== "install" && !script) {
   process.exit(2);
 }
 
-// V2 builds/dev inject OPENCLAW_CONTROL_UI_V2=1 so vite uses /v2/ base + dist/control-ui-v2
-const runEnv = isV2Action ? { ...process.env, OPENCLAW_CONTROL_UI_V2: "1" } : process.env;
+// V2 is now the default UI — no special env needed
+const runEnv = process.env;
 
 if (action === "install") {
   run(runner.cmd, ["install", ...rest]);
