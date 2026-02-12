@@ -405,6 +405,34 @@ Updated feature documentation with 5 new sections (§21–25) and updates to 6 e
 - **`ui/src/ui/app-view-state.ts`**: `AuthStatus` type extended with `"needs-setup"`. New state fields for setup wizard and password change.
 - **`ui/src/ui/views/settings-unified.ts`**: new "Security" category in settings sidebar. Password change form (current password, new password x2) with inline success/error alerts.
 
+### Security hardening: 2FA onboarding, HTTPS redirect, credentials rotate, audit CLI — 2026-02-12
+
+- **2FA onboarding "secure by default"**: After first-user setup wizard, users are now shown a 2FA prompt screen with amber warning encouraging TOTP activation. Flow: prompt → QR code + manual entry → 6-digit verification → backup codes display. "Skip for now" link available but de-emphasized. New `AuthStatus: "setup-totp-prompt"` with sub-steps (`prompt`, `qr`, `verify`, `backup-codes`).
+  - **`ui/src/ui/views/login.ts`**: 3 new views — `renderSetupTotpPromptView`, `renderSetupTotpQrView`, `renderSetupTotpBackupCodesView`.
+  - **`ui/src/ui/auth.ts`**: new `setupTotp()` and `verifyTotp()` API functions.
+  - **`ui/src/ui/app.ts`**: `handleSetup()` now transitions to `setup-totp-prompt` instead of `authenticated`. New handlers: `handleSetupTotpInit()`, `handleSetupTotpVerify()`, `handleSetupTotpSkip()`.
+  - **`ui/src/ui/app-render.ts`**: auth gate for `setup-totp-prompt` with sub-step routing.
+  - **`ui/src/ui/app-view-state.ts`**: `AuthStatus` extended with `"setup-totp-prompt"`. New state fields for TOTP onboarding flow.
+
+- **HTTP → HTTPS redirect**: When TLS is enabled and `gateway.tls.httpRedirectPort` is configured, a plain HTTP server listens on that port and responds `301 Location: https://...` for all requests.
+  - **`src/config/types.gateway.ts`**: new `httpRedirectPort?: number` in `GatewayTlsConfig`.
+  - **`src/config/zod-schema.ts`**: zod validation for `httpRedirectPort` (int, 1-65535).
+  - **`src/gateway/server-runtime-state.ts`**: creates and binds the redirect server when TLS + `httpRedirectPort` configured.
+  - **`src/gateway/server.impl.ts`**: closes redirect server on shutdown.
+
+- **`openclaw credentials rotate`**: New CLI subcommand that rotates the session encryption key (`~/.openclaw/credentials/session-encryption-key`). Decrypts persisted sessions with old key, generates new 32-byte key, re-encrypts and saves. Prints reminder to restart gateway.
+  - **`src/cli/gateway-cli/credentials.ts`**: new `rotate` subcommand.
+  - **`src/gateway/session-persistence.ts`**: new exported `rotateSessionKey()` helper.
+
+- **`openclaw audit tail` / `openclaw audit search`**: New CLI commands for querying the JSONL audit log.
+  - `audit tail` — show last N lines (`-n`), follow mode (`-f`), JSON output (`--json`).
+  - `audit search` — filter by `--event`, `--actor`, `--since` (duration like `1h`/`24h`/`7d` or ISO date), JSON output.
+  - **`src/cli/audit-cli.ts`** (new): `registerAuditCli` with `tail` and `search` subcommands.
+  - **`src/cli/program/register.subclis.ts`**: registered `audit` subcommand.
+  - **`src/gateway/audit-log.ts`**: exported `resolveAuditPath()`.
+
+- **CSP nonce + dynamic isHashedMode**: Inline config script now uses a per-request cryptographic nonce (CSP `script-src 'nonce-...'`). `connect-src` includes `ws: wss:`. `isHashedMode()` now checks `hasGatewayUsers()` regardless of auth mode (fixes TOTP 404 in hybrid token+hashed setups).
+
 ### v1 → v2 migration safety
 
 - All new features gated by auth mode — token-mode users see zero side effects.

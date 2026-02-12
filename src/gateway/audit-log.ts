@@ -31,7 +31,8 @@ let auditFilePath: string | null = null;
 let initialized = false;
 let retentionFiles = DEFAULT_RETENTION;
 
-function resolveAuditPath(stateDir: string): string {
+/** Resolve the path to audit.jsonl for a given stateDir. Exported for CLI audit commands. */
+export function resolveAuditPath(stateDir: string): string {
   return path.join(stateDir, LOGS_DIR, AUDIT_FILENAME);
 }
 

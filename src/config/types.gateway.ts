@@ -11,6 +11,8 @@ export type GatewayTlsConfig = {
   keyPath?: string;
   /** Optional PEM CA bundle for TLS clients (mTLS or custom roots). */
   caPath?: string;
+  /** When set and TLS is enabled, listen on this port for plain HTTP and redirect to HTTPS. */
+  httpRedirectPort?: number;
 };
 
 export type WideAreaDiscoveryConfig = {

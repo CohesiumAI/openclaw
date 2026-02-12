@@ -5,6 +5,7 @@
 
 import type { Command } from "commander";
 import { cancel, confirm, isCancel, password, select, text } from "@clack/prompts";
+import qrcode from "qrcode-terminal";
 import { hashPassword, verifyPassword } from "../../gateway/auth-password.js";
 import { deleteUserSessions } from "../../gateway/auth-sessions.js";
 import {
@@ -453,6 +454,9 @@ export function addGatewayUserCommands(gateway: Command) {
       defaultRuntime.log("");
       defaultRuntime.log("otpauth URI (for authenticator app):");
       defaultRuntime.log(`  ${uri}`);
+      defaultRuntime.log("");
+      // QR code for mobile authenticator app scanning
+      qrcode.generate(uri, { small: true });
       defaultRuntime.log("");
 
       const code = guardCancel(

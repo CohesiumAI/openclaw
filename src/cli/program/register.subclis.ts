@@ -208,6 +208,14 @@ const entries: SubCliEntry[] = [
     },
   },
   {
+    name: "audit",
+    description: "Query the gateway security audit log",
+    register: async (program) => {
+      const mod = await import("../audit-cli.js");
+      mod.registerAuditCli(program);
+    },
+  },
+  {
     name: "security",
     description: "Security helpers",
     register: async (program) => {

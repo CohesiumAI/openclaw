@@ -86,8 +86,10 @@ import {
   login as authLogin,
   logout as authLogout,
   setupFirstUser,
+  setupTotp,
   submitTotpBackup,
   submitTotpChallenge,
+  verifyTotp,
 } from "./auth.ts";
 import { loadAssistantIdentity as loadAssistantIdentityInternal } from "./controllers/assistant-identity.ts";
 import { loadChatHistory as loadChatHistoryInternal } from "./controllers/chat.ts";
@@ -141,6 +143,13 @@ export class OpenClawApp extends LitElement {
   @state() setupRecoveryCode = "";
   @state() setupError: string | null = null;
   @state() setupLoading = false;
+  @state() setupTotpStep: "prompt" | "qr" | "verify" | "backup-codes" = "prompt";
+  @state() setupTotpUri = "";
+  @state() setupTotpSecret = "";
+  @state() setupTotpCode = "";
+  @state() setupTotpError: string | null = null;
+  @state() setupTotpLoading = false;
+  @state() setupTotpBackupCodes: string[] = [];
   @state() pwChangeCurrentPassword = "";
   @state() pwChangeNewPassword = "";
   @state() pwChangeNewPasswordConfirm = "";
@@ -593,17 +602,61 @@ export class OpenClawApp extends LitElement {
     );
     this.setupLoading = false;
     if (result.status === "authenticated") {
-      this.authStatus = "authenticated";
       this.authUser = { username: result.user.username, role: result.user.role };
       this.setupPassword = "";
       this.setupPasswordConfirm = "";
       this.setupRecoveryCode = "";
       this.setupError = null;
+      // Transition to 2FA onboarding prompt instead of authenticated
+      this.authStatus = "setup-totp-prompt";
+      this.setupTotpStep = "prompt";
       startSessionRefresh(this);
-      connectGatewayInternal(this as unknown as Parameters<typeof connectGatewayInternal>[0]);
     } else if (result.status === "error") {
       this.setupError = result.message;
     }
+  }
+
+  async handleSetupTotpInit() {
+    if (this.setupTotpLoading) {
+      return;
+    }
+    this.setupTotpLoading = true;
+    this.setupTotpError = null;
+    const result = await setupTotp(this.basePath);
+    this.setupTotpLoading = false;
+    if (result.ok && result.uri && result.secret) {
+      this.setupTotpUri = result.uri;
+      this.setupTotpSecret = result.secret;
+      this.setupTotpBackupCodes = result.backupCodes ?? [];
+      this.setupTotpStep = "qr";
+    } else {
+      this.setupTotpError = result.error ?? "Failed to start TOTP setup";
+    }
+  }
+
+  async handleSetupTotpVerify() {
+    if (this.setupTotpLoading) {
+      return;
+    }
+    this.setupTotpLoading = true;
+    this.setupTotpError = null;
+    const result = await verifyTotp(this.setupTotpCode.trim(), this.basePath);
+    this.setupTotpLoading = false;
+    if (result.ok) {
+      if (this.setupTotpBackupCodes.length > 0) {
+        this.setupTotpStep = "backup-codes";
+      } else {
+        this.authStatus = "authenticated";
+        connectGatewayInternal(this as unknown as Parameters<typeof connectGatewayInternal>[0]);
+      }
+    } else {
+      this.setupTotpError = result.error ?? "Invalid code";
+    }
+  }
+
+  handleSetupTotpSkip() {
+    this.authStatus = "authenticated";
+    connectGatewayInternal(this as unknown as Parameters<typeof connectGatewayInternal>[0]);
   }
 
   async handlePasswordChange() {

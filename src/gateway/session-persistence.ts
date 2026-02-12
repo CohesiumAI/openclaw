@@ -191,6 +191,36 @@ export function flushSessions(
   }
 }
 
+/**
+ * Rotate the session encryption key: decrypt sessions with old key, generate new key,
+ * re-encrypt sessions with new key. Returns the new key path for logging.
+ */
+export function rotateSessionKey(stateDir: string): { keyPath: string; sessionsRotated: number } {
+  const keyPath = resolveKeyPath(stateDir);
+  if (!fs.existsSync(keyPath)) {
+    throw new Error(`Session encryption key not found at ${keyPath}`);
+  }
+  const oldHex = fs.readFileSync(keyPath, "utf8").trim();
+  const oldKey = Buffer.from(oldHex, "hex");
+  if (oldKey.length !== KEY_LENGTH) {
+    throw new Error("Corrupt session encryption key (wrong length)");
+  }
+
+  // Load existing sessions with old key (may be empty)
+  const sessions = loadPersistedSessions(oldKey, stateDir);
+
+  // Generate new key
+  const newKey = randomBytes(KEY_LENGTH);
+  fs.writeFileSync(keyPath, newKey.toString("hex") + "\n", { mode: 0o600 });
+
+  // Re-encrypt sessions with new key
+  if (sessions.size > 0) {
+    persistSessions(sessions, newKey, stateDir);
+  }
+
+  return { keyPath, sessionsRotated: sessions.size };
+}
+
 /** Cancel pending persist timer (for tests). */
 export function cancelPersistTimer(): void {
   if (persistTimer) {

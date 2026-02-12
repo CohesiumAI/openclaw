@@ -274,6 +274,64 @@ export async function changePassword(
   }
 }
 
+/** Start TOTP setup — returns secret + otpauth URI + backup codes. */
+export async function setupTotp(
+  basePath = "",
+): Promise<{ ok: boolean; secret?: string; uri?: string; backupCodes?: string[]; error?: string }> {
+  try {
+    const token = getCsrfToken();
+    const headers: Record<string, string> = { "Content-Type": "application/json" };
+    if (token) {
+      headers["x-csrf-token"] = token;
+    }
+    const res = await fetch(`${basePath}/auth/totp/setup`, {
+      method: "POST",
+      credentials: "same-origin",
+      headers,
+    });
+    const data = (await res.json()) as {
+      ok?: boolean;
+      secret?: string;
+      uri?: string;
+      backupCodes?: string[];
+      error?: { message: string };
+    };
+    if (res.ok && data.ok) {
+      return { ok: true, secret: data.secret, uri: data.uri, backupCodes: data.backupCodes };
+    }
+    return { ok: false, error: data.error?.message ?? "TOTP setup failed" };
+  } catch {
+    return { ok: false, error: "Network error" };
+  }
+}
+
+/** Verify a TOTP code to enable 2FA. */
+export async function verifyTotp(
+  code: string,
+  basePath = "",
+): Promise<{ ok: boolean; error?: string }> {
+  try {
+    const token = getCsrfToken();
+    const headers: Record<string, string> = { "Content-Type": "application/json" };
+    if (token) {
+      headers["x-csrf-token"] = token;
+    }
+    const res = await fetch(`${basePath}/auth/totp/verify`, {
+      method: "POST",
+      credentials: "same-origin",
+      headers,
+      body: JSON.stringify({ code }),
+    });
+    const data = (await res.json()) as { ok?: boolean; error?: { message: string } };
+    if (res.ok && data.ok) {
+      return { ok: true };
+    }
+    return { ok: false, error: data.error?.message ?? "Invalid code" };
+  } catch {
+    return { ok: false, error: "Network error" };
+  }
+}
+
 /** Refresh session (sliding window). */
 export async function refreshSession(basePath = ""): Promise<boolean> {
   try {

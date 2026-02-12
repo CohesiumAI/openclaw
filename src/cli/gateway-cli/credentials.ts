@@ -4,8 +4,10 @@
  */
 
 import type { Command } from "commander";
-import fs from "node:fs";
 import { cancel, isCancel, password } from "@clack/prompts";
+import fs from "node:fs";
+import { resolveStateDir } from "../../config/paths.js";
+import { rotateSessionKey } from "../../gateway/session-persistence.js";
 import { resolveGatewayUsersPath } from "../../infra/auth-credentials.js";
 import {
   decryptCredentials,
@@ -52,9 +54,7 @@ export function addCredentialsCommands(gateway: Command) {
           },
         }),
       );
-      const confirm = guardCancel(
-        await password({ message: "Confirm encryption password" }),
-      );
+      const confirm = guardCancel(await password({ message: "Confirm encryption password" }));
       if (pw !== confirm) {
         defaultRuntime.log(theme.error("Passwords do not match."));
         process.exit(1);
@@ -81,9 +81,7 @@ export function addCredentialsCommands(gateway: Command) {
         process.exit(1);
       }
 
-      const pw = guardCancel(
-        await password({ message: "Decryption password" }),
-      );
+      const pw = guardCancel(await password({ message: "Decryption password" }));
 
       try {
         const decrypted = decryptCredentials(raw, pw);
@@ -91,6 +89,25 @@ export function addCredentialsCommands(gateway: Command) {
         defaultRuntime.log(theme.success("Credentials file decrypted."));
       } catch {
         defaultRuntime.log(theme.error("Decryption failed — wrong password or corrupted file."));
+        process.exit(1);
+      }
+    });
+
+  creds
+    .command("rotate")
+    .description("Rotate the session encryption key (re-encrypts persisted sessions)")
+    .action(() => {
+      try {
+        const stateDir = resolveStateDir();
+        const result = rotateSessionKey(stateDir);
+        defaultRuntime.log(
+          theme.success(`Session key rotated (${result.sessionsRotated} sessions re-encrypted).`),
+        );
+        defaultRuntime.log(theme.muted("Restart the gateway to pick up the new key."));
+      } catch (err) {
+        defaultRuntime.log(
+          theme.error(`Rotation failed: ${err instanceof Error ? err.message : String(err)}`),
+        );
         process.exit(1);
       }
     });

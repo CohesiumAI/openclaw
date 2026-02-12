@@ -1,4 +1,4 @@
-import type { Server as HttpServer } from "node:http";
+import { createServer as createPlainHttpServer, type Server as HttpServer } from "node:http";
 import { WebSocketServer } from "ws";
 import type { CliDeps } from "../cli/deps.js";
 import type { createSubsystemLogger } from "../logging/subsystem.js";
@@ -38,6 +38,7 @@ export async function createGatewayRuntimeState(params: {
   openResponsesConfig?: import("../config/types.gateway.js").GatewayHttpResponsesConfig;
   resolvedAuth: ResolvedGatewayAuth;
   gatewayTls?: GatewayTlsRuntime;
+  httpRedirectPort?: number;
   hooksConfig: () => HooksConfigResolved | null;
   pluginRegistry: PluginRegistry;
   deps: CliDeps;
@@ -85,6 +86,7 @@ export async function createGatewayRuntimeState(params: {
   ) => ChatRunEntry | undefined;
   chatAbortControllers: Map<string, ChatAbortControllerEntry>;
   toolEventRecipients: ReturnType<typeof createToolEventRecipientRegistry>;
+  httpRedirectServer?: HttpServer;
 }> {
   let canvasHost: CanvasHostHandler | null = null;
   if (params.canvasHostEnabled) {
@@ -188,6 +190,33 @@ export async function createGatewayRuntimeState(params: {
   const chatAbortControllers = new Map<string, ChatAbortControllerEntry>();
   const toolEventRecipients = createToolEventRecipientRegistry();
 
+  // HTTP→HTTPS redirect server (when TLS is active and httpRedirectPort configured)
+  let httpRedirectServer: HttpServer | undefined;
+  if (params.gatewayTls?.enabled && params.httpRedirectPort) {
+    const redirectPort = params.httpRedirectPort;
+    const mainPort = params.port;
+    httpRedirectServer = createPlainHttpServer((req, res) => {
+      const host = (req.headers.host ?? "localhost").replace(/:\d+$/, "");
+      const location = `https://${host}:${mainPort}${req.url ?? "/"}`;
+      res.writeHead(301, { Location: location });
+      res.end();
+    });
+    for (const host of bindHosts) {
+      try {
+        await new Promise<void>((resolve, reject) => {
+          httpRedirectServer!.listen(redirectPort, host, () => {
+            resolve();
+          });
+          httpRedirectServer!.once("error", reject);
+        });
+        params.log.info(`HTTP→HTTPS redirect listening on ${host}:${redirectPort}`);
+        break;
+      } catch (err) {
+        params.log.warn(`HTTP redirect: failed to bind ${host}:${redirectPort} (${String(err)})`);
+      }
+    }
+  }
+
   return {
     canvasHost,
     httpServer,
@@ -206,5 +235,6 @@ export async function createGatewayRuntimeState(params: {
     removeChatRun,
     chatAbortControllers,
     toolEventRecipients,
+    httpRedirectServer,
   };
 }

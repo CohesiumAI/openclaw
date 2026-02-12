@@ -330,6 +330,7 @@ export async function startGatewayServer(
     removeChatRun,
     chatAbortControllers,
     toolEventRecipients,
+    httpRedirectServer,
   } = await createGatewayRuntimeState({
     cfg: cfgAtStart,
     bindHost,
@@ -342,6 +343,7 @@ export async function startGatewayServer(
     openResponsesConfig,
     resolvedAuth,
     gatewayTls,
+    httpRedirectPort: cfgAtStart.gateway?.tls?.httpRedirectPort,
     hooksConfig: () => hooksConfig,
     pluginRegistry,
     deps,
@@ -653,6 +655,9 @@ export async function startGatewayServer(
         flushSessionsToDisk();
       }
       shutdownAuditLog();
+      if (httpRedirectServer) {
+        await new Promise<void>((resolve) => httpRedirectServer.close(() => resolve()));
+      }
       await close(opts);
     },
   };

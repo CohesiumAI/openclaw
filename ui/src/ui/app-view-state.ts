@@ -43,7 +43,8 @@ export type AuthStatus =
   | "unauthenticated"
   | "no-auth"
   | "totp-challenge"
-  | "needs-setup";
+  | "needs-setup"
+  | "setup-totp-prompt";
 
 export type AppViewState = {
   settings: UiSettings;
@@ -76,6 +77,17 @@ export type AppViewState = {
   setupError: string | null;
   setupLoading: boolean;
   handleSetup: () => Promise<void>;
+  /** Post-setup 2FA onboarding state */
+  setupTotpStep: "prompt" | "qr" | "verify" | "backup-codes";
+  setupTotpUri: string;
+  setupTotpSecret: string;
+  setupTotpCode: string;
+  setupTotpError: string | null;
+  setupTotpLoading: boolean;
+  setupTotpBackupCodes: string[];
+  handleSetupTotpInit: () => Promise<void>;
+  handleSetupTotpVerify: () => Promise<void>;
+  handleSetupTotpSkip: () => void;
   /** Password change (settings) state */
   pwChangeCurrentPassword: string;
   pwChangeNewPassword: string;

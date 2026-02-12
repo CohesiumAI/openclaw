@@ -80,7 +80,14 @@ import { renderDebug } from "./views/debug.ts";
 import { renderExecApprovalPrompt } from "./views/exec-approval.ts";
 import { renderGatewayUrlConfirmation } from "./views/gateway-url-confirmation.ts";
 import { renderInstances } from "./views/instances.ts";
-import { renderLoginView, renderSetupView, renderTotpChallengeView } from "./views/login.ts";
+import {
+  renderLoginView,
+  renderSetupView,
+  renderSetupTotpBackupCodesView,
+  renderSetupTotpPromptView,
+  renderSetupTotpQrView,
+  renderTotpChallengeView,
+} from "./views/login.ts";
 import { renderLogs } from "./views/logs.ts";
 import { renderNodes } from "./views/nodes.ts";
 import { renderOverview } from "./views/overview.ts";
@@ -308,6 +315,44 @@ export function renderApp(state: AppViewState) {
       },
       onSubmit: () => {
         void state.handleSetup();
+      },
+    });
+  }
+  // Auth gate: post-setup 2FA onboarding
+  if (state.authStatus === "setup-totp-prompt") {
+    if (state.setupTotpStep === "backup-codes") {
+      return renderSetupTotpBackupCodesView({
+        backupCodes: state.setupTotpBackupCodes,
+        onContinue: () => {
+          state.handleSetupTotpSkip();
+        },
+      });
+    }
+    if (state.setupTotpStep === "qr") {
+      return renderSetupTotpQrView({
+        uri: state.setupTotpUri,
+        secret: state.setupTotpSecret,
+        code: state.setupTotpCode,
+        error: state.setupTotpError,
+        loading: state.setupTotpLoading,
+        onCodeChange: (v) => {
+          state.setupTotpCode = v;
+        },
+        onVerify: () => {
+          void state.handleSetupTotpVerify();
+        },
+        onSkip: () => {
+          state.handleSetupTotpSkip();
+        },
+      });
+    }
+    return renderSetupTotpPromptView({
+      loading: state.setupTotpLoading,
+      onSetup: () => {
+        void state.handleSetupTotpInit();
+      },
+      onSkip: () => {
+        state.handleSetupTotpSkip();
       },
     });
   }

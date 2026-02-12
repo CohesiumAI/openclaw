@@ -440,6 +440,7 @@ export const OpenClawSchema = z
             certPath: z.string().optional(),
             keyPath: z.string().optional(),
             caPath: z.string().optional(),
+            httpRedirectPort: z.number().int().min(1).max(65535).optional(),
           })
           .optional(),
         http: z
