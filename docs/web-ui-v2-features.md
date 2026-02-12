@@ -368,12 +368,13 @@ V2 persists settings in `localStorage` under `openclaw.control.settings.v1`. Whe
 
 ### 21.2 HTTP Auth Endpoints
 
-| Endpoint        | Method | Description                                       |
-| --------------- | ------ | ------------------------------------------------- |
-| `/auth/login`   | POST   | Authenticate with username + password             |
-| `/auth/logout`  | POST   | Clear session cookie                              |
-| `/auth/me`      | GET    | Check current session (returns user + CSRF token) |
-| `/auth/refresh` | POST   | Sliding window session renewal                    |
+| Endpoint           | Method | Description                                       |
+| ------------------ | ------ | ------------------------------------------------- |
+| `/auth/login`      | POST   | Authenticate with username + password             |
+| `/auth/logout`     | POST   | Clear session cookie                              |
+| `/auth/me`         | GET    | Check current session (returns user + CSRF token) |
+| `/auth/refresh`    | POST   | Sliding window session renewal                    |
+| `/auth/revoke-all` | POST   | Revoke all sessions for the current user          |
 
 ### 21.3 Session Management
 
@@ -393,6 +394,7 @@ openclaw user list      # List all gateway users
 openclaw user delete    # Delete a user with confirmation
 openclaw user rename    # Rename a user
 openclaw user recovery  # Set/update recovery code
+openclaw user revoke    # Revoke all active sessions for a user
 ```
 
 - Passwords hashed with **scrypt** (N=16384, r=8, p=1).
@@ -412,8 +414,9 @@ openclaw user recovery  # Set/update recovery code
 ### 22.1 Content Security Policy (CSP)
 
 - Strict CSP headers on all gateway HTTP responses.
-- `script-src 'self'`, `style-src 'self' 'unsafe-inline'`, `connect-src 'self' ws: wss:`.
-- Prevents inline script injection (XSS).
+- `default-src 'self'`, `script-src 'self'`, `style-src 'self' 'unsafe-inline'`, `connect-src 'self'`.
+- `frame-ancestors 'none'` (equivalent to `X-Frame-Options: DENY`).
+- Prevents inline script injection (XSS) and clickjacking.
 
 ### 22.2 HSTS
 
@@ -444,7 +447,25 @@ openclaw user recovery  # Set/update recovery code
 - Legacy `localStorage` key (`openclaw-device-identity-v1`) is purged after migration.
 - Auth tokens no longer stored client-side — session cookies handle authentication.
 
-### 22.8 Input Validation & Resource Limits
+### 22.8 Session Revocation
+
+- **HTTP endpoint**: `POST /auth/revoke-all` — revokes all active sessions for the authenticated user.
+- **WS method**: `user.sessions.revoke-all` — same via WebSocket (scope: `operator.write`).
+- **CLI command**: `openclaw user revoke` — admin revocation of any user's sessions.
+- Use case: compromised session, device loss, or password change.
+
+### 22.9 Additional Security Headers
+
+| Header                      | Value                                                      | Purpose                                  |
+| --------------------------- | ---------------------------------------------------------- | ---------------------------------------- |
+| `X-Frame-Options`           | `DENY`                                                     | Prevent clickjacking                     |
+| `X-Content-Type-Options`    | `nosniff`                                                  | Prevent MIME sniffing                    |
+| `X-XSS-Protection`          | `0`                                                        | Disable legacy XSS auditor (rely on CSP) |
+| `Referrer-Policy`           | `strict-origin-when-cross-origin`                          | Limit referrer leakage                   |
+| `Permissions-Policy`        | `camera=(), microphone=(self), geolocation=(), payment=()` | Restrict browser APIs                    |
+| `Strict-Transport-Security` | `max-age=31536000; includeSubDomains`                      | HSTS (HTTPS only)                        |
+
+### 22.10 Input Validation & Resource Limits
 
 Server-side validation on all user-data endpoints:
 
@@ -475,17 +496,18 @@ Server-side validation on all user-data endpoints:
 
 ### 23.2 WS Methods
 
-| Method                       | Scope | Description                        |
-| ---------------------------- | ----- | ---------------------------------- |
-| `user.preferences.get`       | read  | Fetch preferences for current user |
-| `user.preferences.set`       | write | Merge-patch preferences            |
-| `user.projects.list`         | read  | List all projects                  |
-| `user.projects.create`       | write | Create a project                   |
-| `user.projects.update`       | write | Update project name/color/sessions |
-| `user.projects.delete`       | write | Delete project + cleanup files     |
-| `user.projects.files.get`    | read  | Retrieve a project file (dataUrl)  |
-| `user.projects.files.put`    | write | Store a project file               |
-| `user.projects.files.delete` | write | Remove project files by IDs        |
+| Method                       | Scope | Description                          |
+| ---------------------------- | ----- | ------------------------------------ |
+| `user.preferences.get`       | read  | Fetch preferences for current user   |
+| `user.preferences.set`       | write | Merge-patch preferences              |
+| `user.projects.list`         | read  | List all projects                    |
+| `user.projects.create`       | write | Create a project                     |
+| `user.projects.update`       | write | Update project name/color/sessions   |
+| `user.projects.delete`       | write | Delete project + cleanup files       |
+| `user.projects.files.get`    | read  | Retrieve a project file (dataUrl)    |
+| `user.projects.files.put`    | write | Store a project file                 |
+| `user.projects.files.delete` | write | Remove project files by IDs          |
+| `user.sessions.revoke-all`   | write | Revoke all sessions for current user |
 
 ### 23.3 Preferences Sync Flow
 

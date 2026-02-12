@@ -281,3 +281,37 @@ Fixes identified during security audit:
 ### docs: update web-ui-v2-features.md with auth, security, sync, and settings features
 
 Updated feature documentation with 5 new sections (§21–25) and updates to 6 existing sections covering authentication, security hardening, cross-browser synchronization, unified settings panel, and V2 as default UI.
+
+---
+
+## Security Hardening — 2026-02-12
+
+### security(headers): tighten CSP, add X-XSS-Protection, Permissions-Policy
+
+- **CSP `connect-src`**: narrowed from `'self' ws: wss:` to `'self'` only (same-origin WS enforced).
+- **X-XSS-Protection: 0**: disable legacy XSS auditor (rely on strict CSP instead).
+- **Permissions-Policy**: `camera=(), microphone=(self), geolocation=(), payment=()` — restrict unused browser APIs, allow microphone for voice input.
+- Updated `control-ui.test.ts` assertions for all new headers.
+
+### security(revocation): add session revocation (HTTP, WS, CLI)
+
+- **`POST /auth/revoke-all`**: HTTP endpoint to revoke all sessions for the authenticated user.
+- **`user.sessions.revoke-all`** WS method (scope: `operator.write`): same via WebSocket.
+- **`openclaw user revoke`** CLI command: admin revocation of any user's sessions with confirmation prompt.
+- **Frontend**: `revokeAllSessions()` function in `ui/src/ui/auth.ts`.
+- E2E tests: revoke-all invalidates all user sessions, unauthenticated revoke returns 401.
+- Unit tests: case-insensitive revocation, user isolation, CSRF token uniqueness.
+
+### security(credentials): add credentials encryption at rest
+
+- **`src/infra/credentials-crypto.ts`**: AES-256-GCM encryption with scrypt-derived key.
+- **`openclaw credentials encrypt`**: encrypt `gateway-users.json` with a master password.
+- **`openclaw credentials decrypt`**: decrypt back to plaintext.
+- Round-trip unit tests, unique salt/IV per encryption, wrong-password rejection.
+
+### docs(gateway): add reverse proxy configuration guide
+
+- **`docs/gateway/reverse-proxy.md`**: nginx, Caddy, Traefik examples.
+- Documents `trustedProxies`, `allowInsecureAuth`, `dangerouslyDisableDeviceAuth` flags.
+- Misconfiguration consequences table.
+- Links to `openclaw security audit` CLI command.
