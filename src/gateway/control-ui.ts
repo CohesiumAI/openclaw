@@ -74,13 +74,15 @@ function applyControlUiSecurityHeaders(res: ServerResponse, req?: IncomingMessag
       "default-src 'self'",
       "script-src 'self'",
       "style-src 'self' 'unsafe-inline'",
-      "connect-src 'self' ws: wss:",
+      "connect-src 'self'",
       "img-src 'self' data: blob:",
       "font-src 'self' data:",
       "frame-ancestors 'none'",
     ].join("; "),
   );
   res.setHeader("X-Content-Type-Options", "nosniff");
+  res.setHeader("X-XSS-Protection", "0");
+  res.setHeader("Permissions-Policy", "camera=(), microphone=(self), geolocation=(), payment=()");
   res.setHeader("Referrer-Policy", "strict-origin-when-cross-origin");
   // HSTS only on secure connections — browsers ignore it over plain HTTP
   const isSecure =

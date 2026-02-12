@@ -28,7 +28,7 @@ describe("handleControlUiHttpRequest", () => {
       await fs.writeFile(path.join(tmp, "index.html"), "<html></html>\n");
       const { res, setHeader } = makeResponse();
       const handled = handleControlUiHttpRequest(
-        { url: "/", method: "GET" } as IncomingMessage,
+        { url: "/", method: "GET", headers: {} } as IncomingMessage,
         res,
         {
           root: { kind: "resolved", path: tmp },
@@ -38,7 +38,12 @@ describe("handleControlUiHttpRequest", () => {
       expect(setHeader).toHaveBeenCalledWith("X-Frame-Options", "DENY");
       expect(setHeader).toHaveBeenCalledWith(
         "Content-Security-Policy",
-        "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; connect-src 'self' ws: wss:; img-src 'self' data: blob:; font-src 'self' data:; frame-ancestors 'none'",
+        "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; connect-src 'self'; img-src 'self' data: blob:; font-src 'self' data:; frame-ancestors 'none'",
+      );
+      expect(setHeader).toHaveBeenCalledWith("X-XSS-Protection", "0");
+      expect(setHeader).toHaveBeenCalledWith(
+        "Permissions-Policy",
+        "camera=(), microphone=(self), geolocation=(), payment=()",
       );
     } finally {
       await fs.rm(tmp, { recursive: true, force: true });
