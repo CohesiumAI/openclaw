@@ -498,6 +498,36 @@ Server-side validation on all user-data endpoints:
 - Documents `trustedProxies`, `allowInsecureAuth`, `dangerouslyDisableDeviceAuth` behavior and misconfiguration consequences.
 - Links to `openclaw security audit` for verification.
 
+### 22.13 Encrypted Session Persistence
+
+Sessions survive gateway restarts via an encrypted disk store:
+
+- **Storage**: `~/.openclaw/sessions/auth-sessions.enc` (binary, mode `0o600`).
+- **Encryption**: AES-256-GCM with unique IV per write. Integrity verified via GCM auth tag.
+- **Key**: machine-generated 32-byte key stored in `~/.openclaw/credentials/session-encryption-key` (mode `0o600`). Auto-created on first gateway start — no user password prompt required.
+- **Write strategy**: debounced (2 s) on every session mutation (create, delete, refresh, revoke). Synchronous flush on gateway shutdown.
+- **Restore**: on gateway start, the encrypted file is decrypted and expired sessions are discarded before hydrating the in-memory store.
+- **Fail-open**: if the file is missing, corrupt, or the key has changed, the gateway starts with an empty session store (users must re-login). No crash, no data leak.
+- **Threat model**: protects session tokens at rest against offline disk access (stolen backup, decommissioned drive). Does not protect against root access to the running process (inherent to any non-HSM system).
+
+### 22.14 Security Hardening Summary
+
+| Layer                | Protection                                                       | Details                                                                                  |
+| -------------------- | ---------------------------------------------------------------- | ---------------------------------------------------------------------------------------- |
+| **Transport**        | HSTS, Secure cookies, SameSite=Strict                            | Cookie `Secure` flag set only when HTTPS detected; HTTP allowed on loopback only         |
+| **Authentication**   | Scrypt password hashing, timing-safe comparison                  | Constant-time verify prevents user-enumeration oracle                                    |
+| **Sessions**         | 30-min sliding TTL, encrypted persistence, per-session CSRF      | AES-256-GCM at rest; CSRF token bound to each session                                    |
+| **Authorization**    | RBAC (admin/operator/read-only), scope-based WS methods          | Default-deny: empty scopes = no permissions                                              |
+| **Headers**          | CSP, X-Frame-Options, X-Content-Type-Options, Permissions-Policy | `connect-src 'self'`; `frame-ancestors 'none'`; `script-src 'self'` (no `unsafe-inline`) |
+| **WebSocket**        | Pre-auth gate, Origin validation, handshake timeout              | Non-local WS upgrades rejected without session cookie                                    |
+| **Rate limiting**    | 5 failed login attempts → 429                                    | Per-IP rate limiting with automatic reset on success                                     |
+| **Input validation** | Regex IDs, size caps, type checks                                | Projects/files/sessions all server-validated                                             |
+| **Credentials**      | AES-256-GCM encryption at rest (optional)                        | `openclaw credentials encrypt/decrypt` CLI                                               |
+| **Network**          | Startup warning on `0.0.0.0` without auth                        | `trustedProxies` strict; untrusted proxy headers logged                                  |
+| **Device identity**  | Ed25519 keys in IndexedDB                                        | Migrated from localStorage; legacy key purged                                            |
+| **Revocation**       | HTTP, WS, CLI session revocation                                 | `POST /auth/revoke-all`, WS method, `openclaw user revoke`                               |
+| **Audit**            | `openclaw security audit` CLI                                    | Scans config, permissions, plugins, network exposure                                     |
+
 ---
 
 ## 23. Cross-Browser Synchronization

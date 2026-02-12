@@ -328,3 +328,17 @@ Updated feature documentation with 5 new sections (§21–25) and updates to 6 e
 - Misconfiguration consequences table.
 - Links to `openclaw security audit` CLI command.
 - Updated `web-ui-v2-features.md` §22 with session revocation, security headers table, credential encryption, and reverse proxy sections.
+
+---
+
+## Security Hardening — Session Persistence — 2026-02-12
+
+### security(sessions): add encrypted session persistence across gateway restarts
+
+- **`src/gateway/session-persistence.ts`**: AES-256-GCM encrypted persistence of the in-memory session store to `~/.openclaw/sessions/auth-sessions.enc`.
+- Machine-generated 32-byte encryption key stored in `~/.openclaw/credentials/session-encryption-key` (mode `0o600`).
+- Debounced writes (2 s) on every session mutation; synchronous flush on gateway shutdown.
+- Expired sessions purged before persist; fail-open on corrupt/missing file (empty store, no crash).
+- `initSessionPersistence()` called on gateway start; `flushSessionsToDisk()` on shutdown.
+- 9 new unit tests (`session-persistence.test.ts`), 1 integration test in `auth-sessions.test.ts`.
+- §22.13 (Encrypted Session Persistence) and §22.14 (Security Hardening Summary table) added to `web-ui-v2-features.md`.
