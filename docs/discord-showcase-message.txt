@@ -1,0 +1,17 @@
+🖥️ **Web UI V2 — A ChatGPT-style interface for OpenClaw**
+
+Hey! I've been working on a redesign of the OpenClaw web UI as a personal project. It's a modern, chat-first interface that runs alongside V1 at `/v2/chat` — the existing UI is completely untouched.
+
+**What it adds:**
+• Multi-chat sidebar with search (Cmd+K), pin & archive
+• Projects — group chats + file attachments into color-coded workspaces
+• Live model switching & per-session skill toggles
+• Edit/regenerate any message, slash command autocomplete
+• Voice I/O (speech-to-text + TTS read-aloud)
+• Light/dark theme toggle
+
+All gateway changes are backward-compatible — V1 doesn't break. This is my first open-source contribution, so any feedback on the approach is very welcome!
+
+🖼️ **Screenshots:** https://github.com/CohesiumAI/openclaw/tree/feature/web-ui-v2/docs/screenshots_UI_v2
+📎 **GitHub Discussion:** https://github.com/openclaw/openclaw/discussions/13363
+📎 **Branch:** https://github.com/CohesiumAI/openclaw/tree/feature/web-ui-v2
