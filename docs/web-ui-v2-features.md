@@ -484,6 +484,20 @@ Server-side validation on all user-data endpoints:
 | `navGroupsCollapsed`    | Values must be booleans                  |
 | Username (filesystem)   | Sanitized to `[a-z0-9_-]` only           |
 
+### 22.11 Credential Encryption at Rest
+
+- **CLI commands**: `openclaw credentials encrypt` / `openclaw credentials decrypt`.
+- Encrypts `~/.openclaw/credentials/gateway-users.json` with AES-256-GCM using a scrypt-derived key from a user-supplied password.
+- Each encryption produces unique salt + IV (no ciphertext reuse).
+- File format: `{ version: 1, encrypted: true, salt, iv, authTag, data }`.
+
+### 22.12 Reverse Proxy Guide
+
+- Dedicated documentation at [Reverse Proxy](/gateway/reverse-proxy).
+- Configuration examples for **nginx**, **Caddy**, and **Traefik**.
+- Documents `trustedProxies`, `allowInsecureAuth`, `dangerouslyDisableDeviceAuth` behavior and misconfiguration consequences.
+- Links to `openclaw security audit` for verification.
+
 ---
 
 ## 23. Cross-Browser Synchronization

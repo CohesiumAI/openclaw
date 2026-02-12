@@ -284,16 +284,20 @@ Updated feature documentation with 5 new sections (§21–25) and updates to 6 e
 
 ---
 
-## Security Hardening — 2026-02-12
+## `56edb5df6` — 2026-02-12
 
-### security(headers): tighten CSP, add X-XSS-Protection, Permissions-Policy
+### security(headers): tighten CSP connect-src, add X-XSS-Protection and Permissions-Policy
 
 - **CSP `connect-src`**: narrowed from `'self' ws: wss:` to `'self'` only (same-origin WS enforced).
 - **X-XSS-Protection: 0**: disable legacy XSS auditor (rely on strict CSP instead).
 - **Permissions-Policy**: `camera=(), microphone=(self), geolocation=(), payment=()` — restrict unused browser APIs, allow microphone for voice input.
 - Updated `control-ui.test.ts` assertions for all new headers.
 
-### security(revocation): add session revocation (HTTP, WS, CLI)
+---
+
+## `e568e0d1e` — 2026-02-12
+
+### security(revocation): add session revocation via HTTP, WS, and CLI
 
 - **`POST /auth/revoke-all`**: HTTP endpoint to revoke all sessions for the authenticated user.
 - **`user.sessions.revoke-all`** WS method (scope: `operator.write`): same via WebSocket.
@@ -302,16 +306,25 @@ Updated feature documentation with 5 new sections (§21–25) and updates to 6 e
 - E2E tests: revoke-all invalidates all user sessions, unauthenticated revoke returns 401.
 - Unit tests: case-insensitive revocation, user isolation, CSRF token uniqueness.
 
-### security(credentials): add credentials encryption at rest
+---
+
+## `6d9ad4807` — 2026-02-12
+
+### security(credentials): add AES-256-GCM encryption for credentials at rest
 
 - **`src/infra/credentials-crypto.ts`**: AES-256-GCM encryption with scrypt-derived key.
 - **`openclaw credentials encrypt`**: encrypt `gateway-users.json` with a master password.
 - **`openclaw credentials decrypt`**: decrypt back to plaintext.
 - Round-trip unit tests, unique salt/IV per encryption, wrong-password rejection.
 
-### docs(gateway): add reverse proxy configuration guide
+---
 
-- **`docs/gateway/reverse-proxy.md`**: nginx, Caddy, Traefik examples.
+## `ab1ed54e0` — 2026-02-12
+
+### docs: add reverse proxy guide, update security hardening docs and changelog
+
+- **`docs/gateway/reverse-proxy.md`**: nginx, Caddy, Traefik config examples.
 - Documents `trustedProxies`, `allowInsecureAuth`, `dangerouslyDisableDeviceAuth` flags.
 - Misconfiguration consequences table.
 - Links to `openclaw security audit` CLI command.
+- Updated `web-ui-v2-features.md` §22 with session revocation, security headers table, credential encryption, and reverse proxy sections.
