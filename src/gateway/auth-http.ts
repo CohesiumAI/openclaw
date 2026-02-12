@@ -37,6 +37,14 @@ import { sendJson } from "./http-common.js";
 import { resolveGatewayClientIp } from "./net.js";
 import { createProgressiveRateLimiter } from "./rate-limiter.js";
 
+/** Dynamic check — covers users created after gateway start (setup wizard, CLI). */
+function isHashedMode(auth?: ResolvedGatewayAuth): boolean {
+  if (auth?.mode === "password" && hasGatewayUsers()) {
+    return true;
+  }
+  return false;
+}
+
 // --- Rate limiting (progressive) ---
 
 const loginLimiter = createProgressiveRateLimiter();
@@ -392,7 +400,7 @@ async function handleResetPassword(
   opts: { trustedProxies?: string[]; resolvedAuth?: ResolvedGatewayAuth },
 ): Promise<void> {
   // Only available in hashed-credentials mode
-  if (!opts.resolvedAuth?.useHashedCredentials) {
+  if (!isHashedMode(opts.resolvedAuth)) {
     sendJson(res, 404, { error: { message: "Not Found", type: "not_found" } });
     return;
   }
@@ -481,7 +489,7 @@ async function handleResetPassword(
 // --- Capabilities (feature discovery for frontend) ---
 
 function handleCapabilities(res: ServerResponse, resolvedAuth?: ResolvedGatewayAuth): void {
-  const isHashed = resolvedAuth?.useHashedCredentials === true;
+  const isHashed = isHashedMode(resolvedAuth);
   // Password mode with no users yet → first-time setup required
   const needsSetup = resolvedAuth?.mode === "password" && !hasGatewayUsers();
   sendJson(res, 200, {
@@ -616,7 +624,7 @@ async function handleChangePassword(
   res: ServerResponse,
   opts: { trustedProxies?: string[]; resolvedAuth?: ResolvedGatewayAuth },
 ): Promise<void> {
-  if (!opts.resolvedAuth?.useHashedCredentials) {
+  if (!isHashedMode(opts.resolvedAuth)) {
     sendJson(res, 404, { error: { message: "Not Found", type: "not_found" } });
     return;
   }
@@ -690,7 +698,7 @@ async function handleTotpSetup(
   res: ServerResponse,
   opts: { trustedProxies?: string[]; resolvedAuth?: ResolvedGatewayAuth },
 ): Promise<void> {
-  if (!opts.resolvedAuth?.useHashedCredentials) {
+  if (!isHashedMode(opts.resolvedAuth)) {
     sendJson(res, 404, { error: { message: "Not Found", type: "not_found" } });
     return;
   }
@@ -727,7 +735,7 @@ async function handleTotpVerify(
   res: ServerResponse,
   opts: { trustedProxies?: string[]; resolvedAuth?: ResolvedGatewayAuth },
 ): Promise<void> {
-  if (!opts.resolvedAuth?.useHashedCredentials) {
+  if (!isHashedMode(opts.resolvedAuth)) {
     sendJson(res, 404, { error: { message: "Not Found", type: "not_found" } });
     return;
   }
@@ -780,7 +788,7 @@ async function handleTotpChallenge(
   res: ServerResponse,
   opts: { trustedProxies?: string[]; resolvedAuth?: ResolvedGatewayAuth },
 ): Promise<void> {
-  if (!opts.resolvedAuth?.useHashedCredentials) {
+  if (!isHashedMode(opts.resolvedAuth)) {
     sendJson(res, 404, { error: { message: "Not Found", type: "not_found" } });
     return;
   }
@@ -859,7 +867,7 @@ async function handleTotpBackup(
   res: ServerResponse,
   opts: { trustedProxies?: string[]; resolvedAuth?: ResolvedGatewayAuth },
 ): Promise<void> {
-  if (!opts.resolvedAuth?.useHashedCredentials) {
+  if (!isHashedMode(opts.resolvedAuth)) {
     sendJson(res, 404, { error: { message: "Not Found", type: "not_found" } });
     return;
   }
