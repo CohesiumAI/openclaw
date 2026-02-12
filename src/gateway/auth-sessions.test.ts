@@ -82,6 +82,27 @@ describe("auth-sessions", () => {
     expect(ids).toContain(s2.id);
   });
 
+  it("deleteUserSessions is case-insensitive", () => {
+    createAuthSession({ username: "Alice", role: "admin" });
+    createAuthSession({ username: "alice", role: "admin" });
+    const deleted = deleteUserSessions("ALICE");
+    expect(deleted).toBe(2);
+    expect(getSessionCount()).toBe(0);
+  });
+
+  it("deleteUserSessions does not affect other users", () => {
+    createAuthSession({ username: "alice", role: "admin" });
+    const bobSession = createAuthSession({ username: "bob", role: "operator" });
+    deleteUserSessions("alice");
+    expect(getAuthSession(bobSession.id)).not.toBeNull();
+  });
+
+  it("each session gets a unique CSRF token", () => {
+    const s1 = createAuthSession({ username: "alice", role: "admin" });
+    const s2 = createAuthSession({ username: "alice", role: "admin" });
+    expect(s1.csrfToken).not.toBe(s2.csrfToken);
+  });
+
   it("rolesToScopes maps roles correctly", () => {
     expect(rolesToScopes("admin")).toContain("operator.admin");
     expect(rolesToScopes("operator")).toContain("operator.read");

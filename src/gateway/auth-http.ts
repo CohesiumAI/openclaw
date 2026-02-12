@@ -10,6 +10,7 @@ import { DUMMY_PASSWORD_HASH, verifyPassword } from "./auth-password.js";
 import {
   createAuthSession,
   deleteAuthSession,
+  deleteUserSessions,
   getAuthSession,
   refreshAuthSession,
 } from "./auth-sessions.js";
@@ -121,6 +122,10 @@ export function handleAuthHttpRequest(
   }
   if (route === "/auth/refresh" && req.method === "POST") {
     handleRefresh(req, res);
+    return true;
+  }
+  if (route === "/auth/revoke-all" && req.method === "POST") {
+    handleRevokeAll(req, res);
     return true;
   }
 
@@ -259,6 +264,27 @@ function handleRefresh(req: IncomingMessage, res: ServerResponse): void {
   const secure = isSecureRequest(req);
   setSessionCookie(res, session.id, { secure });
   sendJson(res, 200, { ok: true });
+}
+
+function handleRevokeAll(req: IncomingMessage, res: ServerResponse): void {
+  const sessionId = parseSessionCookie(req);
+  if (!sessionId) {
+    sendJson(res, 401, {
+      error: { message: "Not authenticated", type: "unauthorized" },
+    });
+    return;
+  }
+  const session = getAuthSession(sessionId);
+  if (!session) {
+    clearSessionCookie(res);
+    sendJson(res, 401, {
+      error: { message: "Session expired", type: "session_expired" },
+    });
+    return;
+  }
+  const count = deleteUserSessions(session.username);
+  clearSessionCookie(res);
+  sendJson(res, 200, { ok: true, revokedCount: count });
 }
 
 // --- CSRF verification middleware ---

@@ -6,6 +6,7 @@
 import type { Command } from "commander";
 import { cancel, confirm, isCancel, password, select, text } from "@clack/prompts";
 import { hashPassword, verifyPassword } from "../../gateway/auth-password.js";
+import { deleteUserSessions } from "../../gateway/auth-sessions.js";
 import {
   createGatewayUser,
   deleteGatewayUser,
@@ -357,5 +358,44 @@ export function addGatewayUserCommands(gateway: Command) {
 
       deleteGatewayUser(username);
       defaultRuntime.log(theme.success(`User "${username}" deleted.`));
+    });
+
+  // --- gateway user revoke ---
+  user
+    .command("revoke")
+    .description("Revoke all active sessions for a gateway user")
+    .action(async () => {
+      const username = guardCancel(
+        await text({
+          message: "Username",
+          validate: (v) => {
+            if (!v || !v.trim()) {
+              return "Username is required";
+            }
+          },
+        }),
+      );
+
+      const existing = getGatewayUser(username);
+      if (!existing) {
+        defaultRuntime.log(theme.error(`User "${username}" not found.`));
+        process.exit(1);
+      }
+
+      const confirmed = guardCancel(
+        await confirm({
+          message: `Revoke all active sessions for "${username}"?`,
+          initialValue: false,
+        }),
+      );
+      if (!confirmed) {
+        defaultRuntime.log("Cancelled.");
+        return;
+      }
+
+      const count = deleteUserSessions(username);
+      defaultRuntime.log(
+        theme.success(`Revoked ${count} session${count !== 1 ? "s" : ""} for "${username}".`),
+      );
     });
 }

@@ -95,6 +95,26 @@ export async function logout(basePath = ""): Promise<void> {
   csrfToken = null;
 }
 
+/** Revoke all sessions for the current user (forces re-login on all devices). */
+export async function revokeAllSessions(
+  basePath = "",
+): Promise<{ ok: boolean; revokedCount?: number }> {
+  try {
+    const res = await fetch(`${basePath}/auth/revoke-all`, {
+      method: "POST",
+      credentials: "same-origin",
+    });
+    if (res.ok) {
+      const data = (await res.json()) as { ok: boolean; revokedCount: number };
+      csrfToken = null;
+      return data;
+    }
+    return { ok: false };
+  } catch {
+    return { ok: false };
+  }
+}
+
 /** Refresh session (sliding window). */
 export async function refreshSession(basePath = ""): Promise<boolean> {
   try {

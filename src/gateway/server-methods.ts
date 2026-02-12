@@ -24,6 +24,7 @@ import { updateHandlers } from "./server-methods/update.js";
 import { usageHandlers } from "./server-methods/usage.js";
 import { userPreferencesHandlers } from "./server-methods/user-preferences.js";
 import { userProjectsHandlers } from "./server-methods/user-projects.js";
+import { userSessionsHandlers } from "./server-methods/user-sessions.js";
 import { voicewakeHandlers } from "./server-methods/voicewake.js";
 import { webHandlers } from "./server-methods/web.js";
 import { wizardHandlers } from "./server-methods/wizard.js";
@@ -101,6 +102,7 @@ const WRITE_METHODS = new Set([
   "user.projects.delete",
   "user.projects.files.put",
   "user.projects.files.delete",
+  "user.sessions.revoke-all",
 ]);
 
 function authorizeGatewayMethod(method: string, client: GatewayRequestOptions["client"]) {
@@ -203,6 +205,7 @@ export const coreGatewayHandlers: GatewayRequestHandlers = {
   ...browserHandlers,
   ...userPreferencesHandlers,
   ...userProjectsHandlers,
+  ...userSessionsHandlers,
 };
 
 export async function handleGatewayRequest(
