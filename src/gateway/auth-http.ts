@@ -37,12 +37,13 @@ import { sendJson } from "./http-common.js";
 import { resolveGatewayClientIp } from "./net.js";
 import { createProgressiveRateLimiter } from "./rate-limiter.js";
 
-/** Dynamic check — covers users created after gateway start (setup wizard, CLI). */
+/** Dynamic check — covers users created after gateway start (setup wizard, CLI) and hybrid token+hashed setups. */
 function isHashedMode(auth?: ResolvedGatewayAuth): boolean {
-  if (auth?.mode === "password" && hasGatewayUsers()) {
+  if (auth?.useHashedCredentials) {
     return true;
   }
-  return false;
+  // Fallback: users may have been created after gateway boot, or mode is token while hashed users exist
+  return hasGatewayUsers();
 }
 
 // --- Rate limiting (progressive) ---

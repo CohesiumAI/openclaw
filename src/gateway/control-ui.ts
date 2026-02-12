@@ -1,4 +1,5 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
+import { randomBytes } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import type { OpenClawConfig } from "../config/config.js";
@@ -66,15 +67,16 @@ type ControlUiAvatarMeta = {
   avatarUrl: string | null;
 };
 
-function applyControlUiSecurityHeaders(res: ServerResponse, req?: IncomingMessage) {
+function applyControlUiSecurityHeaders(res: ServerResponse, req?: IncomingMessage, nonce?: string) {
   res.setHeader("X-Frame-Options", "DENY");
+  const scriptSrc = nonce ? `'self' 'nonce-${nonce}'` : "'self'";
   res.setHeader(
     "Content-Security-Policy",
     [
       "default-src 'self'",
-      "script-src 'self'",
+      `script-src ${scriptSrc}`,
       "style-src 'self' 'unsafe-inline'",
-      "connect-src 'self'",
+      "connect-src 'self' ws: wss:",
       "img-src 'self' data: blob:",
       "font-src 'self' data:",
       "frame-ancestors 'none'",
@@ -187,10 +189,14 @@ interface ControlUiInjectionOpts {
   assistantAvatar?: string;
 }
 
-function injectControlUiConfig(html: string, opts: ControlUiInjectionOpts): string {
-  const { basePath, assistantName, assistantAvatar } = opts;
+function injectControlUiConfig(
+  html: string,
+  opts: ControlUiInjectionOpts & { nonce?: string },
+): string {
+  const { basePath, assistantName, assistantAvatar, nonce } = opts;
+  const nonceAttr = nonce ? ` nonce="${nonce}"` : "";
   const script =
-    `<script>` +
+    `<script${nonceAttr}>` +
     `window.__OPENCLAW_CONTROL_UI_BASE_PATH__=${JSON.stringify(basePath)};` +
     `window.__OPENCLAW_ASSISTANT_NAME__=${JSON.stringify(
       assistantName ?? DEFAULT_ASSISTANT_IDENTITY.name,
@@ -216,7 +222,12 @@ interface ServeIndexHtmlOpts {
   agentId?: string;
 }
 
-function serveIndexHtml(res: ServerResponse, indexPath: string, opts: ServeIndexHtmlOpts) {
+function serveIndexHtml(
+  res: ServerResponse,
+  req: IncomingMessage,
+  indexPath: string,
+  opts: ServeIndexHtmlOpts,
+) {
   const { basePath, config, agentId } = opts;
   const identity = config
     ? resolveAssistantIdentity({ cfg: config, agentId })
@@ -231,6 +242,9 @@ function serveIndexHtml(res: ServerResponse, indexPath: string, opts: ServeIndex
       agentId: resolvedAgentId,
       basePath,
     }) ?? identity.avatar;
+  // Generate nonce for inline config script and override CSP with it
+  const nonce = randomBytes(16).toString("base64");
+  applyControlUiSecurityHeaders(res, req, nonce);
   res.setHeader("Content-Type", "text/html; charset=utf-8");
   res.setHeader("Cache-Control", "no-cache");
   const raw = fs.readFileSync(indexPath, "utf8");
@@ -239,6 +253,7 @@ function serveIndexHtml(res: ServerResponse, indexPath: string, opts: ServeIndex
       basePath,
       assistantName: identity.name,
       assistantAvatar: avatarValue,
+      nonce,
     }),
   );
 }
@@ -362,7 +377,7 @@ export function handleControlUiHttpRequest(
 
   if (fs.existsSync(filePath) && fs.statSync(filePath).isFile()) {
     if (path.basename(filePath) === "index.html") {
-      serveIndexHtml(res, filePath, {
+      serveIndexHtml(res, req, filePath, {
         basePath,
         config: opts?.config,
         agentId: opts?.agentId,
@@ -376,7 +391,7 @@ export function handleControlUiHttpRequest(
   // SPA fallback (client-side router): serve index.html for unknown paths.
   const indexPath = path.join(root, "index.html");
   if (fs.existsSync(indexPath)) {
-    serveIndexHtml(res, indexPath, {
+    serveIndexHtml(res, req, indexPath, {
       basePath,
       config: opts?.config,
       agentId: opts?.agentId,

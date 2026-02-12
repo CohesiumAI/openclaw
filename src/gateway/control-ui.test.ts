@@ -36,10 +36,15 @@ describe("handleControlUiHttpRequest", () => {
       );
       expect(handled).toBe(true);
       expect(setHeader).toHaveBeenCalledWith("X-Frame-Options", "DENY");
-      expect(setHeader).toHaveBeenCalledWith(
-        "Content-Security-Policy",
-        "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; connect-src 'self'; img-src 'self' data: blob:; font-src 'self' data:; frame-ancestors 'none'",
+      // CSP is set twice: once without nonce (initial), then with nonce (serveIndexHtml override)
+      const cspCalls = setHeader.mock.calls.filter(
+        (c: unknown[]) => c[0] === "Content-Security-Policy",
       );
+      expect(cspCalls.length).toBeGreaterThanOrEqual(1);
+      const lastCsp = cspCalls[cspCalls.length - 1][1] as string;
+      expect(lastCsp).toContain("script-src 'self' 'nonce-");
+      expect(lastCsp).toContain("connect-src 'self' ws: wss:");
+      expect(lastCsp).toContain("frame-ancestors 'none'");
       expect(setHeader).toHaveBeenCalledWith("X-XSS-Protection", "0");
       expect(setHeader).toHaveBeenCalledWith(
         "Permissions-Policy",
