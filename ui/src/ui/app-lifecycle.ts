@@ -20,7 +20,7 @@ import {
 } from "./app-settings.ts";
 import { onTtsPlayingChange } from "./app-tts.ts";
 import { startSessionRefresh, stopSessionRefresh } from "./auth-refresh.ts";
-import { checkAuth } from "./auth.ts";
+import { checkAuth, fetchCapabilities } from "./auth.ts";
 
 type LifecycleHost = {
   basePath: string;
@@ -122,8 +122,9 @@ async function checkAuthAndConnect(host: LifecycleHost) {
     startSessionRefresh(host);
     connectGateway(host as unknown as Parameters<typeof connectGateway>[0]);
   } else if (result.status === "unauthenticated") {
-    // /auth/me returned 401 — gateway has auth configured, show login
-    host.authStatus = "unauthenticated";
+    // Check if first-time setup is needed (no users created yet)
+    const caps = await fetchCapabilities(host.basePath);
+    host.authStatus = caps.needsSetup ? "needs-setup" : "unauthenticated";
   } else {
     // Network error or 404 — no auth configured, connect directly
     host.authStatus = "no-auth";

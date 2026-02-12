@@ -12,7 +12,7 @@ import { renderConfigForm, SECTION_META } from "./config-form.ts";
 
 // -- Types ------------------------------------------------------------------
 
-type SettingsCategory = "quick" | "gateway-section";
+type SettingsCategory = "quick" | "gateway-section" | "security";
 
 type SidebarEntry = {
   id: string;
@@ -179,6 +179,7 @@ const sectionIconMap: Record<string, TemplateResult> = {
 function buildSidebarEntries(schema: JsonSchema | null): SidebarEntry[] {
   const entries: SidebarEntry[] = [
     { id: "quick", label: "Quick Settings", icon: icons.bolt, category: "quick" },
+    { id: "security", label: "Security", icon: icons.auth, category: "security" },
   ];
 
   if (!schema || !schema.properties) {
@@ -514,6 +515,157 @@ function renderGatewaySection(state: AppViewState, sectionKey: string) {
   `;
 }
 
+// -- Render: Security -------------------------------------------------------
+
+/** Render the Security section (password change) */
+function renderSecuritySettings(state: AppViewState) {
+  const handlePwSubmit = (e: Event) => {
+    e.preventDefault();
+    void state.handlePasswordChange();
+  };
+
+  const canSubmit =
+    !state.pwChangeLoading &&
+    state.pwChangeCurrentPassword.length > 0 &&
+    state.pwChangeNewPassword.length >= 8 &&
+    state.pwChangeNewPassword === state.pwChangeNewPasswordConfirm;
+
+  return html`
+    <div class="security-section">
+      <h3 class="security-section__title">Change password</h3>
+      <form class="security-form" @submit=${handlePwSubmit}>
+        ${
+          state.pwChangeError
+            ? html`<div class="security-alert security-alert--error">${state.pwChangeError}</div>`
+            : nothing
+        }
+        ${
+          state.pwChangeSuccess
+            ? html`
+                <div class="security-alert security-alert--success">Password changed successfully.</div>
+              `
+            : nothing
+        }
+        <label class="security-field">
+          <span>Current password</span>
+          <input
+            type="password"
+            autocomplete="current-password"
+            .value=${state.pwChangeCurrentPassword}
+            @input=${(e: Event) => {
+              state.pwChangeCurrentPassword = (e.target as HTMLInputElement).value;
+              state.pwChangeSuccess = false;
+            }}
+            ?disabled=${state.pwChangeLoading}
+          />
+        </label>
+        <label class="security-field">
+          <span>New password <small class="field-hint-sm">(min. 8 characters)</small></span>
+          <input
+            type="password"
+            autocomplete="new-password"
+            .value=${state.pwChangeNewPassword}
+            @input=${(e: Event) => {
+              state.pwChangeNewPassword = (e.target as HTMLInputElement).value;
+              state.pwChangeSuccess = false;
+            }}
+            ?disabled=${state.pwChangeLoading}
+          />
+        </label>
+        <label class="security-field">
+          <span>Confirm new password</span>
+          <input
+            type="password"
+            autocomplete="new-password"
+            .value=${state.pwChangeNewPasswordConfirm}
+            @input=${(e: Event) => {
+              state.pwChangeNewPasswordConfirm = (e.target as HTMLInputElement).value;
+              state.pwChangeSuccess = false;
+            }}
+            ?disabled=${state.pwChangeLoading}
+          />
+        </label>
+        <button class="security-submit" type="submit" ?disabled=${!canSubmit}>
+          ${state.pwChangeLoading ? "Changing\u2026" : "Change password"}
+        </button>
+      </form>
+    </div>
+    <style>
+      .security-section { max-width: 420px; }
+      .security-section__title {
+        margin: 0 0 1rem;
+        font-size: 1rem;
+        font-weight: 600;
+        color: var(--text-primary, #fff);
+      }
+      .security-form {
+        display: flex;
+        flex-direction: column;
+        gap: 0.75rem;
+      }
+      .security-field {
+        display: flex;
+        flex-direction: column;
+        gap: 0.25rem;
+      }
+      .security-field span {
+        font-size: 0.8125rem;
+        font-weight: 500;
+        color: var(--text-secondary, #aaa);
+      }
+      .field-hint-sm {
+        font-weight: 400;
+        color: var(--text-tertiary, #777);
+      }
+      .security-field input {
+        padding: 0.5rem 0.625rem;
+        border-radius: 6px;
+        border: 1px solid var(--border-color, #333);
+        background: var(--bg-primary, #0a0a0a);
+        color: var(--text-primary, #fff);
+        font-size: 0.875rem;
+        outline: none;
+        transition: border-color 0.15s;
+      }
+      .security-field input:focus {
+        border-color: var(--accent-color, #3b82f6);
+      }
+      .security-field input:disabled {
+        opacity: 0.5;
+      }
+      .security-submit {
+        margin-top: 0.25rem;
+        padding: 0.5rem;
+        border-radius: 6px;
+        border: none;
+        background: var(--accent-color, #3b82f6);
+        color: #fff;
+        font-size: 0.875rem;
+        font-weight: 500;
+        cursor: pointer;
+        transition: opacity 0.15s;
+      }
+      .security-submit:hover:not(:disabled) { opacity: 0.9; }
+      .security-submit:disabled { opacity: 0.4; cursor: not-allowed; }
+      .security-alert {
+        padding: 0.5rem 0.75rem;
+        border-radius: 6px;
+        font-size: 0.8125rem;
+      }
+      .security-alert--error {
+        background: rgba(239, 68, 68, 0.1);
+        border: 1px solid rgba(239, 68, 68, 0.3);
+        color: #ef4444;
+      }
+      .security-alert--success {
+        background: rgba(34, 197, 94, 0.1);
+        border: 1px solid rgba(34, 197, 94, 0.3);
+        color: #22c55e;
+      }
+    </style>
+  `;
+}
+
 // -- Render: Main -----------------------------------------------------------
 
 /** Unified settings panel — sidebar + content area */
@@ -540,6 +692,9 @@ export function renderUnifiedSettings(state: AppViewState) {
   const renderContent = () => {
     if (activeEntry.category === "quick") {
       return renderQuickSettings(state);
+    }
+    if (activeEntry.category === "security") {
+      return renderSecuritySettings(state);
     }
     if (activeEntry.category === "gateway-section" && activeEntry.sectionKey) {
       return renderGatewaySection(state, activeEntry.sectionKey);

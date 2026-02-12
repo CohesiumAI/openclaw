@@ -113,6 +113,132 @@ export function renderTotpChallengeView(props: TotpChallengeProps): TemplateResu
   `;
 }
 
+export type SetupProps = {
+  username: string;
+  password: string;
+  passwordConfirm: string;
+  recoveryCode: string;
+  error: string | null;
+  loading: boolean;
+  onUsernameChange: (value: string) => void;
+  onPasswordChange: (value: string) => void;
+  onPasswordConfirmChange: (value: string) => void;
+  onRecoveryCodeChange: (value: string) => void;
+  onSubmit: () => void;
+};
+
+export function renderSetupView(props: SetupProps): TemplateResult {
+  const {
+    username,
+    password,
+    passwordConfirm,
+    recoveryCode,
+    error,
+    loading,
+    onUsernameChange,
+    onPasswordChange,
+    onPasswordConfirmChange,
+    onRecoveryCodeChange,
+    onSubmit,
+  } = props;
+
+  const handleSubmit = (e: Event) => {
+    e.preventDefault();
+    onSubmit();
+  };
+
+  const handleKeydown = (e: KeyboardEvent) => {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      onSubmit();
+    }
+  };
+
+  const canSubmit =
+    !loading && username.trim().length > 0 && password.length >= 8 && password === passwordConfirm;
+
+  return html`
+    <div class="login-overlay">
+      <div class="login-card">
+        <div class="login-header">
+          <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" />
+            <circle cx="8.5" cy="7" r="4" />
+            <line x1="20" y1="8" x2="20" y2="14" />
+            <line x1="23" y1="11" x2="17" y2="11" />
+          </svg>
+          <h1>Welcome to OpenClaw</h1>
+        </div>
+        <p class="setup-subtitle">Create your admin account to get started.</p>
+        <form @submit=${handleSubmit}>
+          ${error ? html`<div class="login-error">${error}</div>` : ""}
+          <label class="login-field">
+            <span>Username</span>
+            <input
+              type="text"
+              autocomplete="username"
+              .value=${username}
+              @input=${(e: Event) => onUsernameChange((e.target as HTMLInputElement).value)}
+              @keydown=${handleKeydown}
+              ?disabled=${loading}
+              autofocus
+            />
+          </label>
+          <label class="login-field">
+            <span>Password <small class="field-hint">(min. 8 characters)</small></span>
+            <input
+              type="password"
+              autocomplete="new-password"
+              .value=${password}
+              @input=${(e: Event) => onPasswordChange((e.target as HTMLInputElement).value)}
+              @keydown=${handleKeydown}
+              ?disabled=${loading}
+            />
+          </label>
+          <label class="login-field">
+            <span>Confirm password</span>
+            <input
+              type="password"
+              autocomplete="new-password"
+              .value=${passwordConfirm}
+              @input=${(e: Event) => onPasswordConfirmChange((e.target as HTMLInputElement).value)}
+              @keydown=${handleKeydown}
+              ?disabled=${loading}
+            />
+          </label>
+          <label class="login-field">
+            <span>Recovery code <small class="field-hint">(optional, 8-16 digits)</small></span>
+            <input
+              type="text"
+              inputmode="numeric"
+              maxlength="16"
+              placeholder="e.g. 12345678"
+              .value=${recoveryCode}
+              @input=${(e: Event) => onRecoveryCodeChange((e.target as HTMLInputElement).value)}
+              @keydown=${handleKeydown}
+              ?disabled=${loading}
+            />
+          </label>
+          <button class="login-submit" type="submit" ?disabled=${!canSubmit}>
+            ${loading ? "Creating account\u2026" : "Create account"}
+          </button>
+        </form>
+      </div>
+    </div>
+    <style>
+      .setup-subtitle {
+        margin: -0.5rem 0 1.25rem;
+        color: var(--text-secondary, #aaa);
+        font-size: 0.875rem;
+      }
+      .field-hint {
+        font-weight: 400;
+        color: var(--text-tertiary, #777);
+      }
+    </style>
+  `;
+}
+
 export function renderLoginView(props: LoginProps): TemplateResult {
   const { username, password, error, loading, onUsernameChange, onPasswordChange, onSubmit } =
     props;

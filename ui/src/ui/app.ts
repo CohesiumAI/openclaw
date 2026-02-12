@@ -82,8 +82,10 @@ import {
 import { resolveInjectedAssistantIdentity } from "./assistant-identity.ts";
 import { startSessionRefresh, stopSessionRefresh } from "./auth-refresh.ts";
 import {
+  changePassword,
   login as authLogin,
   logout as authLogout,
+  setupFirstUser,
   submitTotpBackup,
   submitTotpChallenge,
 } from "./auth.ts";
@@ -133,6 +135,18 @@ export class OpenClawApp extends LitElement {
   @state() totpError: string | null = null;
   @state() totpLoading = false;
   @state() totpBackupMode = false;
+  @state() setupUsername = "";
+  @state() setupPassword = "";
+  @state() setupPasswordConfirm = "";
+  @state() setupRecoveryCode = "";
+  @state() setupError: string | null = null;
+  @state() setupLoading = false;
+  @state() pwChangeCurrentPassword = "";
+  @state() pwChangeNewPassword = "";
+  @state() pwChangeNewPasswordConfirm = "";
+  @state() pwChangeError: string | null = null;
+  @state() pwChangeSuccess = false;
+  @state() pwChangeLoading = false;
   @state() theme: ThemeMode = this.settings.theme ?? "system";
   @state() themeResolved: ResolvedTheme = "dark";
   @state() hello: GatewayHelloOk | null = null;
@@ -543,6 +557,84 @@ export class OpenClawApp extends LitElement {
     this.totpCode = "";
     this.totpError = null;
     this.totpBackupMode = false;
+  }
+
+  async handleSetup() {
+    if (this.setupLoading) {
+      return;
+    }
+    // Client-side validation
+    if (!this.setupUsername.trim()) {
+      this.setupError = "Username is required";
+      return;
+    }
+    if (this.setupPassword.length < 8) {
+      this.setupError = "Password must be at least 8 characters";
+      return;
+    }
+    if (this.setupPassword !== this.setupPasswordConfirm) {
+      this.setupError = "Passwords do not match";
+      return;
+    }
+    const rc = this.setupRecoveryCode.trim();
+    if (rc && !/^\d{8,16}$/.test(rc)) {
+      this.setupError = "Recovery code must be 8-16 digits";
+      return;
+    }
+    this.setupLoading = true;
+    this.setupError = null;
+    const result = await setupFirstUser(
+      {
+        username: this.setupUsername.trim(),
+        password: this.setupPassword,
+        recoveryCode: rc || undefined,
+      },
+      this.basePath,
+    );
+    this.setupLoading = false;
+    if (result.status === "authenticated") {
+      this.authStatus = "authenticated";
+      this.authUser = { username: result.user.username, role: result.user.role };
+      this.setupPassword = "";
+      this.setupPasswordConfirm = "";
+      this.setupRecoveryCode = "";
+      this.setupError = null;
+      startSessionRefresh(this);
+      connectGatewayInternal(this as unknown as Parameters<typeof connectGatewayInternal>[0]);
+    } else if (result.status === "error") {
+      this.setupError = result.message;
+    }
+  }
+
+  async handlePasswordChange() {
+    if (this.pwChangeLoading) {
+      return;
+    }
+    if (this.pwChangeNewPassword.length < 8) {
+      this.pwChangeError = "New password must be at least 8 characters";
+      return;
+    }
+    if (this.pwChangeNewPassword !== this.pwChangeNewPasswordConfirm) {
+      this.pwChangeError = "New passwords do not match";
+      return;
+    }
+    this.pwChangeLoading = true;
+    this.pwChangeError = null;
+    this.pwChangeSuccess = false;
+    const result = await changePassword(
+      this.pwChangeCurrentPassword,
+      this.pwChangeNewPassword,
+      this.basePath,
+    );
+    this.pwChangeLoading = false;
+    if (result.ok) {
+      this.pwChangeSuccess = true;
+      this.pwChangeCurrentPassword = "";
+      this.pwChangeNewPassword = "";
+      this.pwChangeNewPasswordConfirm = "";
+    } else {
+      this.pwChangeError = result.error ?? "Password change failed";
+    }
   }
 
   async handleLogout() {

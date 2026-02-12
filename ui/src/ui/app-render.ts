@@ -80,7 +80,7 @@ import { renderDebug } from "./views/debug.ts";
 import { renderExecApprovalPrompt } from "./views/exec-approval.ts";
 import { renderGatewayUrlConfirmation } from "./views/gateway-url-confirmation.ts";
 import { renderInstances } from "./views/instances.ts";
-import { renderLoginView, renderTotpChallengeView } from "./views/login.ts";
+import { renderLoginView, renderSetupView, renderTotpChallengeView } from "./views/login.ts";
 import { renderLogs } from "./views/logs.ts";
 import { renderNodes } from "./views/nodes.ts";
 import { renderOverview } from "./views/overview.ts";
@@ -284,6 +284,32 @@ export function renderApp(state: AppViewState) {
         }
       </style>
     `;
+  }
+  // Auth gate: first-time setup wizard
+  if (state.authStatus === "needs-setup") {
+    return renderSetupView({
+      username: state.setupUsername,
+      password: state.setupPassword,
+      passwordConfirm: state.setupPasswordConfirm,
+      recoveryCode: state.setupRecoveryCode,
+      error: state.setupError,
+      loading: state.setupLoading,
+      onUsernameChange: (v) => {
+        state.setupUsername = v;
+      },
+      onPasswordChange: (v) => {
+        state.setupPassword = v;
+      },
+      onPasswordConfirmChange: (v) => {
+        state.setupPasswordConfirm = v;
+      },
+      onRecoveryCodeChange: (v) => {
+        state.setupRecoveryCode = v;
+      },
+      onSubmit: () => {
+        void state.handleSetup();
+      },
+    });
   }
   // Auth gate: login screen
   if (state.authStatus === "unauthenticated") {

@@ -42,7 +42,8 @@ export type AuthStatus =
   | "authenticated"
   | "unauthenticated"
   | "no-auth"
-  | "totp-challenge";
+  | "totp-challenge"
+  | "needs-setup";
 
 export type AppViewState = {
   settings: UiSettings;
@@ -67,6 +68,22 @@ export type AppViewState = {
   handleLogout: () => Promise<void>;
   handleTotpSubmit: () => Promise<void>;
   handleTotpBack: () => void;
+  /** First-time setup wizard state */
+  setupUsername: string;
+  setupPassword: string;
+  setupPasswordConfirm: string;
+  setupRecoveryCode: string;
+  setupError: string | null;
+  setupLoading: boolean;
+  handleSetup: () => Promise<void>;
+  /** Password change (settings) state */
+  pwChangeCurrentPassword: string;
+  pwChangeNewPassword: string;
+  pwChangeNewPasswordConfirm: string;
+  pwChangeError: string | null;
+  pwChangeSuccess: boolean;
+  pwChangeLoading: boolean;
+  handlePasswordChange: () => Promise<void>;
   theme: ThemeMode;
   themeResolved: "light" | "dark";
   hello: GatewayHelloOk | null;

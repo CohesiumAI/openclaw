@@ -394,6 +394,17 @@ Updated feature documentation with 5 new sections (§21–25) and updates to 6 e
 - **`ui/src/ui/app-render.ts`**: auth gate renders TOTP challenge view when `authStatus === "totp-challenge"`.
 - **`ui/src/ui/app-view-state.ts`**: `AuthStatus` type extended with `"totp-challenge"`.
 
+### Frontend: first-time setup wizard + password change — 2026-02-12
+
+- **`src/gateway/auth-http.ts`**: `GET /auth/capabilities` now exposes `needsSetup: true` when password mode has no users. New `POST /auth/setup` endpoint — creates first admin user (username, password, optional 8-16 digit recovery code), rate-limited, auto-login on success. New `POST /auth/change-password` endpoint — authenticated users change password (current password verification via scrypt, min 8 chars). Both endpoints audit-logged.
+- **`ui/src/ui/auth.ts`**: new functions `fetchCapabilities()`, `setupFirstUser()`, `changePassword()`.
+- **`ui/src/ui/views/login.ts`**: new `renderSetupView` — "Welcome to OpenClaw" card with username, password (x2), optional recovery code (8-16 digits). Same visual style as login card.
+- **`ui/src/ui/app-lifecycle.ts`**: `checkAuthAndConnect()` calls `fetchCapabilities()` when unauthenticated; routes to `needs-setup` status when `needsSetup: true`.
+- **`ui/src/ui/app.ts`**: setup wizard state fields + `handleSetup()` (client-side validation + API call + auto-connect). Password change state fields + `handlePasswordChange()`.
+- **`ui/src/ui/app-render.ts`**: auth gate renders setup wizard when `authStatus === "needs-setup"`.
+- **`ui/src/ui/app-view-state.ts`**: `AuthStatus` type extended with `"needs-setup"`. New state fields for setup wizard and password change.
+- **`ui/src/ui/views/settings-unified.ts`**: new "Security" category in settings sidebar. Password change form (current password, new password x2) with inline success/error alerts.
+
 ### v1 → v2 migration safety
 
 - All new features gated by auth mode — token-mode users see zero side effects.

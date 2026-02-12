@@ -7,7 +7,9 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
 import type { ResolvedGatewayAuth } from "./auth.js";
 import {
+  createGatewayUser,
   getGatewayUser,
+  hasGatewayUsers,
   updateGatewayUserPassword,
   updateGatewayUserTotp,
 } from "../infra/auth-credentials.js";
@@ -127,6 +129,14 @@ export function handleAuthHttpRequest(
   }
   if (route === "/auth/capabilities" && req.method === "GET") {
     handleCapabilities(res, opts.resolvedAuth);
+    return true;
+  }
+  if (route === "/auth/setup" && req.method === "POST") {
+    void handleSetup(req, res, opts);
+    return true;
+  }
+  if (route === "/auth/change-password" && req.method === "POST") {
+    void handleChangePassword(req, res, opts);
     return true;
   }
   if (route === "/auth/totp/setup" && req.method === "POST") {
@@ -472,12 +482,205 @@ async function handleResetPassword(
 
 function handleCapabilities(res: ServerResponse, resolvedAuth?: ResolvedGatewayAuth): void {
   const isHashed = resolvedAuth?.useHashedCredentials === true;
+  // Password mode with no users yet → first-time setup required
+  const needsSetup = resolvedAuth?.mode === "password" && !hasGatewayUsers();
   sendJson(res, 200, {
     authMode: resolvedAuth?.mode ?? "token",
     hasRecoveryReset: isHashed,
     has2fa: isHashed,
     hasUserManagement: isHashed,
+    needsSetup,
   });
+}
+
+// --- First-time setup (creates first admin user, only when no users exist) ---
+
+const RECOVERY_CODE_RE = /^\d{8,16}$/;
+
+async function handleSetup(
+  req: IncomingMessage,
+  res: ServerResponse,
+  opts: { trustedProxies?: string[]; resolvedAuth?: ResolvedGatewayAuth },
+): Promise<void> {
+  // Only available in password mode when no users exist
+  if (opts.resolvedAuth?.mode !== "password" || hasGatewayUsers()) {
+    sendJson(res, 404, { error: { message: "Not Found", type: "not_found" } });
+    return;
+  }
+
+  const ip = clientIpFromReq(req, opts.trustedProxies);
+
+  // Rate limit to prevent brute-force race
+  const ipKey = `setup:ip:${ip}`;
+  const remaining = loginLimiter.check(ipKey);
+  if (remaining > 0) {
+    sendJson(res, 429, {
+      error: {
+        message: "Too many attempts. Try again later.",
+        type: "rate_limited",
+        retryAfterMs: remaining,
+      },
+    });
+    return;
+  }
+
+  let body: unknown;
+  try {
+    const raw = await readBody(req);
+    body = JSON.parse(raw);
+  } catch {
+    sendJson(res, 400, { error: { message: "Invalid JSON body", type: "invalid_request" } });
+    return;
+  }
+
+  const { username, password, recoveryCode } = body as {
+    username?: string;
+    password?: string;
+    recoveryCode?: string;
+  };
+
+  if (!username || typeof username !== "string" || !password || typeof password !== "string") {
+    sendJson(res, 400, {
+      error: { message: "username and password are required", type: "invalid_request" },
+    });
+    return;
+  }
+
+  if (username.trim().length < 1 || username.trim().length > 64) {
+    sendJson(res, 400, {
+      error: { message: "Username must be 1-64 characters", type: "invalid_request" },
+    });
+    return;
+  }
+
+  if (password.length < 8) {
+    sendJson(res, 400, {
+      error: { message: "Password must be at least 8 characters", type: "invalid_request" },
+    });
+    return;
+  }
+
+  if (
+    recoveryCode !== undefined &&
+    (typeof recoveryCode !== "string" || !RECOVERY_CODE_RE.test(recoveryCode))
+  ) {
+    sendJson(res, 400, {
+      error: { message: "Recovery code must be 8-16 digits", type: "invalid_request" },
+    });
+    return;
+  }
+
+  // Double-check race condition: another request may have created a user
+  if (hasGatewayUsers()) {
+    sendJson(res, 409, {
+      error: { message: "A user already exists. Please use the login page.", type: "conflict" },
+    });
+    return;
+  }
+
+  const passwordHash = await hashPassword(password);
+  const recoveryCodeHash = recoveryCode ? await hashPassword(recoveryCode) : undefined;
+
+  const created = createGatewayUser({
+    username: username.trim(),
+    passwordHash,
+    role: "admin",
+    recoveryCodeHash,
+  });
+
+  if (!created) {
+    sendJson(res, 409, {
+      error: { message: "User already exists", type: "conflict" },
+    });
+    return;
+  }
+
+  audit("auth.setup.success", username.trim(), ip);
+
+  // Auto-login: create session + set cookie
+  const session = createAuthSession({ username: username.trim(), role: "admin" });
+  const secure = isSecureRequest(req);
+  setSessionCookie(res, session.id, { secure });
+
+  sendJson(res, 200, {
+    ok: true,
+    user: { username: session.username, role: session.role, scopes: session.scopes },
+    csrfToken: session.csrfToken,
+  });
+}
+
+// --- Change password (authenticated users) ---
+
+async function handleChangePassword(
+  req: IncomingMessage,
+  res: ServerResponse,
+  opts: { trustedProxies?: string[]; resolvedAuth?: ResolvedGatewayAuth },
+): Promise<void> {
+  if (!opts.resolvedAuth?.useHashedCredentials) {
+    sendJson(res, 404, { error: { message: "Not Found", type: "not_found" } });
+    return;
+  }
+
+  const sessionId = parseSessionCookie(req);
+  const session = sessionId ? getAuthSession(sessionId) : null;
+  if (!session) {
+    sendJson(res, 401, { error: { message: "Not authenticated", type: "unauthorized" } });
+    return;
+  }
+
+  let body: unknown;
+  try {
+    const raw = await readBody(req);
+    body = JSON.parse(raw);
+  } catch {
+    sendJson(res, 400, { error: { message: "Invalid JSON body", type: "invalid_request" } });
+    return;
+  }
+
+  const { currentPassword, newPassword } = body as {
+    currentPassword?: string;
+    newPassword?: string;
+  };
+
+  if (
+    !currentPassword ||
+    typeof currentPassword !== "string" ||
+    !newPassword ||
+    typeof newPassword !== "string"
+  ) {
+    sendJson(res, 400, {
+      error: { message: "currentPassword and newPassword are required", type: "invalid_request" },
+    });
+    return;
+  }
+
+  if (newPassword.length < 8) {
+    sendJson(res, 400, {
+      error: { message: "New password must be at least 8 characters", type: "invalid_request" },
+    });
+    return;
+  }
+
+  const user = getGatewayUser(session.username);
+  const valid = await verifyPassword(currentPassword, user?.passwordHash ?? DUMMY_PASSWORD_HASH);
+  if (!user || !valid) {
+    const ip = clientIpFromReq(req, opts.trustedProxies);
+    audit("auth.password_change.failed", session.username, ip, {
+      reason: "wrong_current_password",
+    });
+    sendJson(res, 401, {
+      error: { message: "Current password is incorrect", type: "unauthorized" },
+    });
+    return;
+  }
+
+  const newHash = await hashPassword(newPassword);
+  updateGatewayUserPassword(session.username, newHash);
+
+  const ip = clientIpFromReq(req, opts.trustedProxies);
+  audit("auth.password_changed", session.username, ip);
+
+  sendJson(res, 200, { ok: true });
 }
 
 // --- TOTP endpoints (P3a — only active in hashed-credentials mode) ---

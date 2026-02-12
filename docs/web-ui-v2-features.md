@@ -535,6 +535,8 @@ Sessions survive gateway restarts via an encrypted disk store:
 | **CLI TLS**           | `gateway tls enable/disable/status/regenerate`                   | Manage local HTTPS; auto-generate self-signed or use custom cert/key paths               |
 | **Onboarding 2FA**    | Hashed credentials + optional TOTP during `openclaw onboard`     | Advanced flow: scrypt-hashed user + recovery code (8-16 digits) + inline 2FA setup       |
 | **Frontend 2FA**      | TOTP challenge screen in Web UI login flow                       | 6-digit code input, backup code toggle, back-to-login; consistent with login card style  |
+| **Setup wizard**      | First-time admin account creation in Web UI                      | `POST /auth/setup` gated by no-users; rate-limited; auto-login; optional recovery code   |
+| **Password change**   | Settings > Security password change form                         | `POST /auth/change-password` with scrypt verify; CSRF-protected; inline success/error    |
 
 ---
 

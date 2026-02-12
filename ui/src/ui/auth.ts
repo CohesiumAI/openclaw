@@ -197,6 +197,83 @@ export async function submitTotpBackup(
   }
 }
 
+/** Fetch gateway capabilities (feature flags). */
+export async function fetchCapabilities(
+  basePath = "",
+): Promise<{ needsSetup?: boolean; hasUserManagement?: boolean; has2fa?: boolean }> {
+  try {
+    const res = await fetch(`${basePath}/auth/capabilities`, {
+      credentials: "same-origin",
+    });
+    if (res.ok) {
+      return (await res.json()) as {
+        needsSetup?: boolean;
+        hasUserManagement?: boolean;
+        has2fa?: boolean;
+      };
+    }
+    return {};
+  } catch {
+    return {};
+  }
+}
+
+/** First-time setup: create the initial admin user. */
+export async function setupFirstUser(
+  params: { username: string; password: string; recoveryCode?: string },
+  basePath = "",
+): Promise<AuthState> {
+  try {
+    const res = await fetch(`${basePath}/auth/setup`, {
+      method: "POST",
+      credentials: "same-origin",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(params),
+    });
+    const data = (await res.json()) as {
+      ok?: boolean;
+      user?: AuthUser;
+      csrfToken?: string;
+      error?: { message: string; type: string };
+    };
+    if (res.ok && data.ok && data.user) {
+      csrfToken = data.csrfToken ?? null;
+      return { status: "authenticated", user: data.user, csrfToken: data.csrfToken ?? "" };
+    }
+    return { status: "error", message: data.error?.message ?? "Setup failed" };
+  } catch {
+    return { status: "error", message: "Network error" };
+  }
+}
+
+/** Change password for the current authenticated user. */
+export async function changePassword(
+  currentPassword: string,
+  newPassword: string,
+  basePath = "",
+): Promise<{ ok: boolean; error?: string }> {
+  try {
+    const token = getCsrfToken();
+    const headers: Record<string, string> = { "Content-Type": "application/json" };
+    if (token) {
+      headers["x-csrf-token"] = token;
+    }
+    const res = await fetch(`${basePath}/auth/change-password`, {
+      method: "POST",
+      credentials: "same-origin",
+      headers,
+      body: JSON.stringify({ currentPassword, newPassword }),
+    });
+    if (res.ok) {
+      return { ok: true };
+    }
+    const data = (await res.json()) as { error?: { message: string } };
+    return { ok: false, error: data.error?.message ?? "Password change failed" };
+  } catch {
+    return { ok: false, error: "Network error" };
+  }
+}
+
 /** Refresh session (sliding window). */
 export async function refreshSession(basePath = ""): Promise<boolean> {
   try {
