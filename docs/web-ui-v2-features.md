@@ -4,6 +4,8 @@ This document provides an exhaustive comparison of every feature added or change
 
 **URL:** `http://localhost:18789/chat` (V2 is now the default and only UI)
 
+> **Changelog:** see [UI_changelog.md](./UI_changelog.md) for the full commit history of this branch.
+
 ---
 
 ## 1. Complete UI Redesign
