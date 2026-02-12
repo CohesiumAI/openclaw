@@ -1,10 +1,19 @@
 /**
  * In-memory HTTP session store for gateway authentication.
  * Sessions are short-lived (30 min default) with sliding-window refresh.
+ * Persisted to disk (AES-256-GCM encrypted) to survive gateway restarts.
  */
 
 import { randomBytes } from "node:crypto";
 import type { GatewayUserRole } from "../infra/auth-credentials.js";
+import { resolveStateDir } from "../config/paths.js";
+import {
+  cancelPersistTimer,
+  flushSessions,
+  generateOrLoadSessionKey,
+  loadPersistedSessions,
+  schedulePersist,
+} from "./session-persistence.js";
 
 export type AuthSession = {
   id: string;
@@ -40,6 +49,45 @@ export function rolesToScopes(role: GatewayUserRole): string[] {
 const sessions = new Map<string, AuthSession>();
 let cleanupTimer: ReturnType<typeof setInterval> | null = null;
 
+// --- Persistence state ---
+let sessionKey: Buffer | null = null;
+let stateDir: string | null = null;
+
+function getPersistenceCtx(): { key: Buffer; dir: string } | null {
+  if (sessionKey && stateDir) {
+    return { key: sessionKey, dir: stateDir };
+  }
+  return null;
+}
+
+function triggerPersist(): void {
+  const ctx = getPersistenceCtx();
+  if (ctx) {
+    schedulePersist(sessions, ctx.key, ctx.dir);
+  }
+}
+
+/** Initialize persistence: load sessions from encrypted disk store. */
+export function initSessionPersistence(dir?: string): void {
+  stateDir = dir ?? resolveStateDir();
+  sessionKey = generateOrLoadSessionKey(stateDir);
+  const restored = loadPersistedSessions(sessionKey, stateDir);
+  for (const [id, session] of restored) {
+    sessions.set(id, session);
+  }
+  if (sessions.size > 0) {
+    ensureCleanupRunning();
+  }
+}
+
+/** Flush sessions to disk synchronously (call on shutdown). */
+export function flushSessionsToDisk(): void {
+  const ctx = getPersistenceCtx();
+  if (ctx) {
+    flushSessions(sessions, ctx.key, ctx.dir);
+  }
+}
+
 function generateSessionId(): string {
   return randomBytes(SESSION_ID_BYTES).toString("base64url");
 }
@@ -66,6 +114,7 @@ export function createAuthSession(params: {
   };
   sessions.set(session.id, session);
   ensureCleanupRunning();
+  triggerPersist();
   return session;
 }
 
@@ -91,12 +140,17 @@ export function refreshAuthSession(sessionId: string): AuthSession | null {
   const now = Date.now();
   session.expiresAt = now + SESSION_TTL_MS;
   session.lastActivityAt = now;
+  triggerPersist();
   return session;
 }
 
 /** Delete a specific session. */
 export function deleteAuthSession(sessionId: string): boolean {
-  return sessions.delete(sessionId);
+  const deleted = sessions.delete(sessionId);
+  if (deleted) {
+    triggerPersist();
+  }
+  return deleted;
 }
 
 /** Delete all sessions for a given username. */
@@ -109,12 +163,16 @@ export function deleteUserSessions(username: string): number {
       count++;
     }
   }
+  if (count > 0) {
+    triggerPersist();
+  }
   return count;
 }
 
 /** Delete all sessions. */
 export function deleteAllAuthSessions(): void {
   sessions.clear();
+  triggerPersist();
 }
 
 /** List all session IDs for a user (for WS revocation). */
@@ -172,4 +230,7 @@ export function stopSessionCleanup(): void {
 export function resetSessionStoreForTest(): void {
   sessions.clear();
   stopSessionCleanup();
+  cancelPersistTimer();
+  sessionKey = null;
+  stateDir = null;
 }

@@ -1,10 +1,15 @@
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import {
   createAuthSession,
   deleteAuthSession,
   deleteUserSessions,
+  flushSessionsToDisk,
   getAuthSession,
   getSessionCount,
+  initSessionPersistence,
   listUserSessionIds,
   refreshAuthSession,
   resetSessionStoreForTest,
@@ -109,5 +114,33 @@ describe("auth-sessions", () => {
     expect(rolesToScopes("operator")).toContain("operator.write");
     expect(rolesToScopes("operator")).not.toContain("operator.admin");
     expect(rolesToScopes("read-only")).toEqual(["operator.read"]);
+  });
+
+  it("sessions survive a persist/restore cycle via initSessionPersistence", () => {
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "openclaw-auth-persist-"));
+    try {
+      // Init persistence with a temp dir
+      initSessionPersistence(tmpDir);
+
+      // Create sessions
+      const s1 = createAuthSession({ username: "alice", role: "admin" });
+      const s2 = createAuthSession({ username: "bob", role: "operator" });
+
+      // Flush to disk
+      flushSessionsToDisk();
+
+      // Reset in-memory state
+      resetSessionStoreForTest();
+      expect(getSessionCount()).toBe(0);
+
+      // Re-init: should restore from disk
+      initSessionPersistence(tmpDir);
+      expect(getSessionCount()).toBe(2);
+      expect(getAuthSession(s1.id)?.username).toBe("alice");
+      expect(getAuthSession(s2.id)?.username).toBe("bob");
+    } finally {
+      resetSessionStoreForTest();
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    }
   });
 });
