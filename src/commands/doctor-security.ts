@@ -69,6 +69,16 @@ export async function noteSecurityWarnings(cfg: OpenClawConfig) {
         `- WARNING: Gateway bound to ${bindDescriptor} (network-accessible).`,
         `  Ensure your auth credentials are strong and not exposed.`,
       );
+      // Check for plain HTTP on LAN — credentials visible to network sniffers
+      const tlsEnabled = cfg.gateway?.tls?.enabled === true;
+      const allowInsecureLan = cfg.gateway?.controlUi?.allowInsecureAuth === true;
+      if (!tlsEnabled && !allowInsecureLan) {
+        warnings.push(
+          `- CRITICAL: Gateway bound to ${bindDescriptor} over plain HTTP — credentials visible to network sniffers.`,
+          `  Fix: ${formatCliCommand("openclaw config set gateway.tls.enabled true")} to enable TLS.`,
+          `  Or use Tailscale, or set gateway.controlUi.allowInsecureAuth=true to override (not recommended).`,
+        );
+      }
     }
   }
 

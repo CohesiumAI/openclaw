@@ -433,6 +433,14 @@ Updated feature documentation with 5 new sections (§21–25) and updates to 6 e
 
 - **CSP nonce + dynamic isHashedMode**: Inline config script now uses a per-request cryptographic nonce (CSP `script-src 'nonce-...'`). `connect-src` includes `ws: wss:`. `isHashedMode()` now checks `hasGatewayUsers()` regardless of auth mode (fixes TOTP 404 in hybrid token+hashed setups).
 
+### Transport hardening: block non-loopback HTTP without TLS — 2026-02-12
+
+- **Hard block**: Gateway now **refuses to start** when `bind` is non-loopback (LAN/0.0.0.0) and TLS is disabled (and Tailscale is off). Previously, this was only a warning in `openclaw security audit` — now it is a hard startup failure with a clear error message listing the three escape hatches: enable TLS, use Tailscale, or set `gateway.controlUi.allowInsecureAuth=true`.
+  - **`src/gateway/server-runtime-config.ts`**: new guard after auth check — `throw` if `!isLoopbackHost(bindHost) && !tlsEnabled && tailscaleMode === "off" && !allowInsecureLan`.
+  - **`src/cli/gateway-cli/run.ts`**: early CLI guard with user-friendly error message and `exit(1)`.
+  - **`src/commands/doctor-security.ts`**: `noteSecurityWarnings()` now emits a `CRITICAL` warning for plain HTTP on LAN.
+  - **`src/security/audit.ts`**: new finding `gateway.bind_no_tls` (severity: critical) in `collectGatewayConfigFindings()`.
+
 ### v1 → v2 migration safety
 
 - All new features gated by auth mode — token-mode users see zero side effects.

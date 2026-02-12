@@ -514,7 +514,7 @@ Sessions survive gateway restarts via an encrypted disk store:
 
 | Layer                 | Protection                                                               | Details                                                                                     |
 | --------------------- | ------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------- |
-| **Transport**         | HSTS, Secure cookies, SameSite=Strict                                    | Cookie `Secure` flag set only when HTTPS detected; HTTP allowed on loopback only            |
+| **Transport**         | HSTS, Secure cookies, SameSite=Strict, hard HTTP-LAN block               | Non-loopback bind **refused** without TLS (or Tailscale/allowInsecureAuth override)         |
 | **Authentication**    | Scrypt password hashing, timing-safe comparison                          | Constant-time verify prevents user-enumeration oracle                                       |
 | **Sessions**          | 30-min sliding TTL, encrypted persistence, per-session CSRF              | AES-256-GCM at rest; CSRF token bound to each session                                       |
 | **Authorization**     | RBAC (admin/operator/read-only), scope-based WS methods                  | Default-deny: empty scopes = no permissions                                                 |
@@ -523,7 +523,7 @@ Sessions survive gateway restarts via an encrypted disk store:
 | **Rate limiting**     | Progressive cooldown (3→30s, 6→1min, 9→5min, 12+→15min)                  | Double-keyed (IP + username) for login and recovery; auto-reset on success                  |
 | **Input validation**  | Regex IDs, size caps, type checks                                        | Projects/files/sessions all server-validated                                                |
 | **Credentials**       | AES-256-GCM encryption at rest (optional)                                | `openclaw credentials encrypt/decrypt` CLI                                                  |
-| **Network**           | Startup warning on `0.0.0.0` without auth                                | `trustedProxies` strict; untrusted proxy headers logged                                     |
+| **Network**           | Hard block on `0.0.0.0` without auth or TLS                              | `trustedProxies` strict; untrusted proxy headers logged; plain HTTP LAN = startup failure   |
 | **Device identity**   | Ed25519 keys in IndexedDB                                                | Migrated from localStorage; legacy key purged                                               |
 | **Revocation**        | HTTP, WS, CLI session revocation                                         | `POST /auth/revoke-all`, WS method, `openclaw user revoke`                                  |
 | **Audit**             | `openclaw security audit` + `audit tail/search` CLI                      | JSONL to `~/.openclaw/logs/audit.jsonl`; `tail -f`, `search --event/--actor/--since`        |

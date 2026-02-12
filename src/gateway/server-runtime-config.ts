@@ -100,6 +100,16 @@ export async function resolveGatewayRuntimeConfig(params: {
       `refusing to bind gateway to ${bindHost}:${params.port} without auth (set gateway.auth.token/password, or set OPENCLAW_GATEWAY_TOKEN/OPENCLAW_GATEWAY_PASSWORD)`,
     );
   }
+  // Block non-loopback HTTP without TLS — a network sniffer would see credentials in cleartext
+  const tlsEnabled = params.cfg.gateway?.tls?.enabled === true;
+  const allowInsecureLan = params.cfg.gateway?.controlUi?.allowInsecureAuth === true;
+  if (!isLoopbackHost(bindHost) && !tlsEnabled && tailscaleMode === "off" && !allowInsecureLan) {
+    throw new Error(
+      `refusing to bind gateway to ${bindHost}:${params.port} over plain HTTP — ` +
+        `credentials would be visible to network sniffers. ` +
+        `Enable TLS (gateway.tls.enabled), use Tailscale, or set gateway.controlUi.allowInsecureAuth=true to override.`,
+    );
+  }
 
   return {
     bindHost,

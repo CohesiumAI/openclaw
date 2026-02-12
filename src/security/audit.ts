@@ -285,6 +285,24 @@ function collectGatewayConfigFindings(
     });
   }
 
+  const tlsEnabled = cfg.gateway?.tls?.enabled === true;
+  const allowInsecureLan = cfg.gateway?.controlUi?.allowInsecureAuth === true;
+  if (
+    bind !== "loopback" &&
+    hasSharedSecret &&
+    !tlsEnabled &&
+    !hasTailscaleAuth &&
+    !allowInsecureLan
+  ) {
+    findings.push({
+      checkId: "gateway.bind_no_tls",
+      severity: "critical",
+      title: "Gateway binds beyond loopback over plain HTTP",
+      detail: `gateway.bind="${bind}" with auth configured but TLS disabled — credentials visible to network sniffers.`,
+      remediation: `Enable TLS (gateway.tls.enabled=true), use Tailscale, or set gateway.controlUi.allowInsecureAuth=true to override.`,
+    });
+  }
+
   if (bind === "loopback" && controlUiEnabled && trustedProxies.length === 0) {
     findings.push({
       checkId: "gateway.trusted_proxies_missing",

@@ -256,6 +256,20 @@ async function runGatewayCommand(opts: GatewayRunOpts) {
     defaultRuntime.exit(1);
     return;
   }
+  // Block non-loopback HTTP without TLS — credentials visible to network sniffers
+  const tlsEnabled = cfg.gateway?.tls?.enabled === true;
+  const tsMode = tailscaleMode ?? cfg.gateway?.tailscale?.mode ?? "off";
+  const allowInsecureLan = cfg.gateway?.controlUi?.allowInsecureAuth === true;
+  if (bind !== "loopback" && !tlsEnabled && tsMode === "off" && !allowInsecureLan) {
+    defaultRuntime.error(
+      [
+        `Refusing to bind gateway to ${bind} over plain HTTP — credentials would be visible to network sniffers.`,
+        "Enable TLS (gateway.tls.enabled), use Tailscale, or set gateway.controlUi.allowInsecureAuth=true to override.",
+      ].join("\n"),
+    );
+    defaultRuntime.exit(1);
+    return;
+  }
 
   try {
     await runGatewayLoop({
