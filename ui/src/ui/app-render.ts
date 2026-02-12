@@ -80,7 +80,7 @@ import { renderDebug } from "./views/debug.ts";
 import { renderExecApprovalPrompt } from "./views/exec-approval.ts";
 import { renderGatewayUrlConfirmation } from "./views/gateway-url-confirmation.ts";
 import { renderInstances } from "./views/instances.ts";
-import { renderLoginView } from "./views/login.ts";
+import { renderLoginView, renderTotpChallengeView } from "./views/login.ts";
 import { renderLogs } from "./views/logs.ts";
 import { renderNodes } from "./views/nodes.ts";
 import { renderOverview } from "./views/overview.ts";
@@ -300,6 +300,29 @@ export function renderApp(state: AppViewState) {
       },
       onSubmit: () => {
         void state.handleLogin();
+      },
+    });
+  }
+  // Auth gate: TOTP challenge screen
+  if (state.authStatus === "totp-challenge") {
+    return renderTotpChallengeView({
+      code: state.totpCode,
+      error: state.totpError,
+      loading: state.totpLoading,
+      backupMode: state.totpBackupMode,
+      onCodeChange: (v) => {
+        state.totpCode = v;
+      },
+      onSubmit: () => {
+        void state.handleTotpSubmit();
+      },
+      onToggleBackupMode: () => {
+        state.totpBackupMode = !state.totpBackupMode;
+        state.totpCode = "";
+        state.totpError = null;
+      },
+      onBack: () => {
+        state.handleTotpBack();
       },
     });
   }

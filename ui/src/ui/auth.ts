@@ -14,6 +14,7 @@ export type AuthState =
   | { status: "authenticated"; user: AuthUser; csrfToken: string }
   | { status: "unauthenticated" }
   | { status: "no-auth" }
+  | { status: "totp-required"; challengeSessionId: string }
   | { status: "error"; message: string };
 
 let csrfToken: string | null = null;
@@ -63,6 +64,8 @@ export async function login(username: string, password: string, basePath = ""): 
       ok?: boolean;
       user?: AuthUser;
       csrfToken?: string;
+      totpRequired?: boolean;
+      challengeSessionId?: string;
       error?: { message: string; type: string };
     };
     if (res.ok && data.ok && data.user) {
@@ -71,6 +74,13 @@ export async function login(username: string, password: string, basePath = ""): 
         status: "authenticated",
         user: data.user,
         csrfToken: data.csrfToken ?? "",
+      };
+    }
+    // TOTP challenge required — partial session created server-side
+    if (data.totpRequired && data.challengeSessionId) {
+      return {
+        status: "totp-required",
+        challengeSessionId: data.challengeSessionId,
       };
     }
     return {
@@ -112,6 +122,78 @@ export async function revokeAllSessions(
     return { ok: false };
   } catch {
     return { ok: false };
+  }
+}
+
+/** Submit a TOTP code to complete 2FA login. */
+export async function submitTotpChallenge(
+  challengeSessionId: string,
+  code: string,
+  basePath = "",
+): Promise<AuthState> {
+  try {
+    const res = await fetch(`${basePath}/auth/totp/challenge`, {
+      method: "POST",
+      credentials: "same-origin",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ challengeSessionId, code }),
+    });
+    const data = (await res.json()) as {
+      ok?: boolean;
+      user?: AuthUser;
+      csrfToken?: string;
+      error?: { message: string; type: string };
+    };
+    if (res.ok && data.ok && data.user) {
+      csrfToken = data.csrfToken ?? null;
+      return {
+        status: "authenticated",
+        user: data.user,
+        csrfToken: data.csrfToken ?? "",
+      };
+    }
+    return {
+      status: "error",
+      message: data.error?.message ?? "Invalid code",
+    };
+  } catch {
+    return { status: "error", message: "Network error" };
+  }
+}
+
+/** Submit a backup code to complete 2FA login. */
+export async function submitTotpBackup(
+  challengeSessionId: string,
+  backupCode: string,
+  basePath = "",
+): Promise<AuthState> {
+  try {
+    const res = await fetch(`${basePath}/auth/totp/backup`, {
+      method: "POST",
+      credentials: "same-origin",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ challengeSessionId, backupCode }),
+    });
+    const data = (await res.json()) as {
+      ok?: boolean;
+      user?: AuthUser;
+      csrfToken?: string;
+      error?: { message: string; type: string };
+    };
+    if (res.ok && data.ok && data.user) {
+      csrfToken = data.csrfToken ?? null;
+      return {
+        status: "authenticated",
+        user: data.user,
+        csrfToken: data.csrfToken ?? "",
+      };
+    }
+    return {
+      status: "error",
+      message: data.error?.message ?? "Invalid backup code",
+    };
+  } catch {
+    return { status: "error", message: "Network error" };
   }
 }
 

@@ -37,7 +37,12 @@ import type { ChatAttachment, ChatQueueItem, CronFormState } from "./ui-types.ts
 import type { NostrProfileFormState } from "./views/channels.nostr-profile-form.ts";
 import type { SessionLogEntry } from "./views/usage.ts";
 
-export type AuthStatus = "loading" | "authenticated" | "unauthenticated" | "no-auth";
+export type AuthStatus =
+  | "loading"
+  | "authenticated"
+  | "unauthenticated"
+  | "no-auth"
+  | "totp-challenge";
 
 export type AppViewState = {
   settings: UiSettings;
@@ -53,8 +58,15 @@ export type AppViewState = {
   loginPassword: string;
   loginError: string | null;
   loginLoading: boolean;
+  totpChallengeSessionId: string | null;
+  totpCode: string;
+  totpError: string | null;
+  totpLoading: boolean;
+  totpBackupMode: boolean;
   handleLogin: () => Promise<void>;
   handleLogout: () => Promise<void>;
+  handleTotpSubmit: () => Promise<void>;
+  handleTotpBack: () => void;
   theme: ThemeMode;
   themeResolved: "light" | "dark";
   hello: GatewayHelloOk | null;

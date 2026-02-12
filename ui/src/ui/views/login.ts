@@ -14,6 +14,105 @@ export type LoginProps = {
   onSubmit: () => void;
 };
 
+export type TotpChallengeProps = {
+  code: string;
+  error: string | null;
+  loading: boolean;
+  backupMode: boolean;
+  onCodeChange: (value: string) => void;
+  onSubmit: () => void;
+  onToggleBackupMode: () => void;
+  onBack: () => void;
+};
+
+export function renderTotpChallengeView(props: TotpChallengeProps): TemplateResult {
+  const { code, error, loading, backupMode, onCodeChange, onSubmit, onToggleBackupMode, onBack } =
+    props;
+
+  const handleSubmit = (e: Event) => {
+    e.preventDefault();
+    onSubmit();
+  };
+
+  const handleKeydown = (e: KeyboardEvent) => {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      onSubmit();
+    }
+  };
+
+  return html`
+    <div class="login-overlay">
+      <div class="login-card">
+        <div class="login-header">
+          <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect>
+            <path d="M7 11V7a5 5 0 0 1 10 0v4"></path>
+            <circle cx="12" cy="16" r="1"></circle>
+          </svg>
+          <h1>Two-factor authentication</h1>
+        </div>
+        <form @submit=${handleSubmit}>
+          ${error ? html`<div class="login-error">${error}</div>` : ""}
+          <label class="login-field">
+            <span>${backupMode ? "Backup code" : "6-digit code"}</span>
+            <input
+              type="text"
+              inputmode="${backupMode ? "text" : "numeric"}"
+              autocomplete="one-time-code"
+              maxlength="${backupMode ? 20 : 6}"
+              placeholder="${backupMode ? "Enter backup code" : "000000"}"
+              .value=${code}
+              @input=${(e: Event) => onCodeChange((e.target as HTMLInputElement).value)}
+              @keydown=${handleKeydown}
+              ?disabled=${loading}
+              autofocus
+            />
+          </label>
+          <button class="login-submit" type="submit" ?disabled=${loading || !code.trim()}>
+            ${loading ? "Verifying\u2026" : "Verify"}
+          </button>
+        </form>
+        <div class="totp-links">
+          <button class="totp-link-btn" @click=${onToggleBackupMode} ?disabled=${loading}>
+            ${backupMode ? "Use authenticator code" : "Use a backup code instead"}
+          </button>
+          <button class="totp-link-btn" @click=${onBack} ?disabled=${loading}>
+            \u2190 Back to login
+          </button>
+        </div>
+      </div>
+    </div>
+    <style>
+      .totp-links {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 0.5rem;
+        margin-top: 1rem;
+      }
+      .totp-link-btn {
+        background: none;
+        border: none;
+        color: var(--accent-color, #3b82f6);
+        font-size: 0.8125rem;
+        cursor: pointer;
+        padding: 0.25rem 0;
+        text-decoration: underline;
+        text-decoration-color: transparent;
+        transition: text-decoration-color 0.15s;
+      }
+      .totp-link-btn:hover:not(:disabled) {
+        text-decoration-color: currentColor;
+      }
+      .totp-link-btn:disabled {
+        opacity: 0.4;
+        cursor: not-allowed;
+      }
+    </style>
+  `;
+}
+
 export function renderLoginView(props: LoginProps): TemplateResult {
   const { username, password, error, loading, onUsernameChange, onPasswordChange, onSubmit } =
     props;

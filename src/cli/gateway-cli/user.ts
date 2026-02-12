@@ -8,12 +8,20 @@ import { cancel, confirm, isCancel, password, select, text } from "@clack/prompt
 import { hashPassword, verifyPassword } from "../../gateway/auth-password.js";
 import { deleteUserSessions } from "../../gateway/auth-sessions.js";
 import {
+  buildTotpUri,
+  generateBackupCodes,
+  generateTotpSecret,
+  hashBackupCodes,
+  verifyTotp,
+} from "../../gateway/auth-totp.js";
+import {
   createGatewayUser,
   deleteGatewayUser,
   getGatewayUser,
   listGatewayUsers,
   updateGatewayUserPassword,
   updateGatewayUserRecoveryCode,
+  updateGatewayUserTotp,
   updateGatewayUsername,
   type GatewayUserRole,
 } from "../../infra/auth-credentials.js";
@@ -21,7 +29,7 @@ import { defaultRuntime } from "../../runtime.js";
 import { isRich, theme } from "../../terminal/theme.js";
 
 const MIN_PASSWORD_LENGTH = 8;
-const RECOVERY_CODE_RE = /^\d{8,12}$/;
+const RECOVERY_CODE_RE = /^\d{8,16}$/;
 
 function guardCancel<T>(value: T | symbol): T {
   if (isCancel(value)) {
@@ -59,10 +67,10 @@ async function promptPasswordTwice(label: string): Promise<string> {
 async function promptRecoveryCodeTwice(): Promise<string> {
   const first = guardCancel(
     await password({
-      message: "Recovery code (8-12 digits)",
+      message: "Recovery code (8-16 digits)",
       validate: (v) => {
         if (!v || !RECOVERY_CODE_RE.test(v)) {
-          return "Must be 8 to 12 digits";
+          return "Must be 8 to 16 digits";
         }
       },
     }),
@@ -302,6 +310,7 @@ export function addGatewayUserCommands(gateway: Command) {
               username: u.username,
               role: u.role,
               hasRecoveryCode: Boolean(u.recoveryCodeHash),
+              hasTotpEnabled: Boolean(u.totpEnabled),
               createdAt: new Date(u.createdAt).toISOString(),
             })),
             null,
@@ -318,7 +327,8 @@ export function addGatewayUserCommands(gateway: Command) {
       for (const u of users) {
         const date = new Date(u.createdAt).toISOString().slice(0, 10);
         const recovery = u.recoveryCodeHash ? "recovery: yes" : "recovery: no";
-        const line = `${u.username}  role=${u.role}  ${recovery}  created=${date}`;
+        const totp = u.totpEnabled ? "totp: yes" : "totp: no";
+        const line = `${u.username}  role=${u.role}  ${recovery}  ${totp}  created=${date}`;
         defaultRuntime.log(rich ? theme.muted(line) : line);
       }
     });
@@ -397,5 +407,212 @@ export function addGatewayUserCommands(gateway: Command) {
       defaultRuntime.log(
         theme.success(`Revoked ${count} session${count !== 1 ? "s" : ""} for "${username}".`),
       );
+    });
+
+  // --- gateway user totp-setup ---
+  user
+    .command("totp-setup")
+    .description("Enable TOTP two-factor authentication for a user")
+    .action(async () => {
+      const username = guardCancel(
+        await text({
+          message: "Username",
+          validate: (v) => {
+            if (!v || !v.trim()) {
+              return "Username is required";
+            }
+          },
+        }),
+      );
+
+      const existing = getGatewayUser(username);
+      if (!existing) {
+        defaultRuntime.log(theme.error(`User "${username}" not found.`));
+        process.exit(1);
+      }
+      if (existing.totpEnabled) {
+        defaultRuntime.log(
+          theme.error(`2FA is already enabled for "${username}". Disable first with totp-disable.`),
+        );
+        process.exit(1);
+      }
+
+      const currentPwd = guardCancel(await password({ message: "Current password" }));
+      const valid = await verifyPassword(currentPwd, existing.passwordHash);
+      if (!valid) {
+        defaultRuntime.log(theme.error("Current password is incorrect."));
+        process.exit(1);
+      }
+
+      const secret = generateTotpSecret();
+      const uri = buildTotpUri(secret, username);
+
+      defaultRuntime.log("");
+      defaultRuntime.log(theme.success("TOTP secret (base32):"));
+      defaultRuntime.log(`  ${secret}`);
+      defaultRuntime.log("");
+      defaultRuntime.log("otpauth URI (for authenticator app):");
+      defaultRuntime.log(`  ${uri}`);
+      defaultRuntime.log("");
+
+      const code = guardCancel(
+        await text({
+          message: "Enter the 6-digit code from your authenticator app to verify",
+          validate: (v) => {
+            if (!v || !/^\d{6}$/.test(v.trim())) {
+              return "Must be a 6-digit code";
+            }
+          },
+        }),
+      );
+
+      const matched = verifyTotp(secret, code.trim());
+      if (!matched) {
+        defaultRuntime.log(theme.error("Invalid TOTP code. Setup aborted."));
+        process.exit(1);
+      }
+
+      // Generate backup codes
+      const backupCodes = generateBackupCodes(10);
+      const backupHashes = await hashBackupCodes(backupCodes);
+
+      updateGatewayUserTotp(username, {
+        totpSecret: secret,
+        totpEnabled: true,
+        lastUsedTotpCode: matched,
+        backupCodeHashes: backupHashes,
+      });
+
+      defaultRuntime.log("");
+      defaultRuntime.log(
+        theme.success("2FA enabled. Save these backup codes — they cannot be recovered:"),
+      );
+      defaultRuntime.log("");
+      for (const bc of backupCodes) {
+        defaultRuntime.log(`  ${bc}`);
+      }
+      defaultRuntime.log("");
+    });
+
+  // --- gateway user totp-disable ---
+  user
+    .command("totp-disable")
+    .description("Disable TOTP two-factor authentication for a user")
+    .action(async () => {
+      const username = guardCancel(
+        await text({
+          message: "Username",
+          validate: (v) => {
+            if (!v || !v.trim()) {
+              return "Username is required";
+            }
+          },
+        }),
+      );
+
+      const existing = getGatewayUser(username);
+      if (!existing) {
+        defaultRuntime.log(theme.error(`User "${username}" not found.`));
+        process.exit(1);
+      }
+      if (!existing.totpEnabled) {
+        defaultRuntime.log(theme.error(`2FA is not enabled for "${username}".`));
+        process.exit(1);
+      }
+
+      const currentPwd = guardCancel(await password({ message: "Current password" }));
+      const valid = await verifyPassword(currentPwd, existing.passwordHash);
+      if (!valid) {
+        defaultRuntime.log(theme.error("Current password is incorrect."));
+        process.exit(1);
+      }
+
+      const confirmed = guardCancel(
+        await confirm({
+          message: `Disable 2FA for "${username}"? This removes the TOTP secret and all backup codes.`,
+          initialValue: false,
+        }),
+      );
+      if (!confirmed) {
+        defaultRuntime.log("Cancelled.");
+        return;
+      }
+
+      updateGatewayUserTotp(username, {
+        totpSecret: undefined,
+        totpEnabled: false,
+        backupCodeHashes: undefined,
+        lastUsedTotpCode: undefined,
+      });
+      defaultRuntime.log(theme.success(`2FA disabled for "${username}".`));
+    });
+
+  // --- gateway user totp-backup-regenerate ---
+  user
+    .command("totp-backup-regenerate")
+    .description("Regenerate TOTP backup codes (requires password + current TOTP code)")
+    .action(async () => {
+      const username = guardCancel(
+        await text({
+          message: "Username",
+          validate: (v) => {
+            if (!v || !v.trim()) {
+              return "Username is required";
+            }
+          },
+        }),
+      );
+
+      const existing = getGatewayUser(username);
+      if (!existing) {
+        defaultRuntime.log(theme.error(`User "${username}" not found.`));
+        process.exit(1);
+      }
+      if (!existing.totpEnabled || !existing.totpSecret) {
+        defaultRuntime.log(theme.error(`2FA is not enabled for "${username}".`));
+        process.exit(1);
+      }
+
+      const currentPwd = guardCancel(await password({ message: "Current password" }));
+      const validPwd = await verifyPassword(currentPwd, existing.passwordHash);
+      if (!validPwd) {
+        defaultRuntime.log(theme.error("Current password is incorrect."));
+        process.exit(1);
+      }
+
+      const code = guardCancel(
+        await text({
+          message: "Current TOTP code (from authenticator app)",
+          validate: (v) => {
+            if (!v || !/^\d{6}$/.test(v.trim())) {
+              return "Must be a 6-digit code";
+            }
+          },
+        }),
+      );
+
+      const matched = verifyTotp(existing.totpSecret, code.trim(), existing.lastUsedTotpCode);
+      if (!matched) {
+        defaultRuntime.log(theme.error("Invalid TOTP code."));
+        process.exit(1);
+      }
+
+      const backupCodes = generateBackupCodes(10);
+      const backupHashes = await hashBackupCodes(backupCodes);
+
+      updateGatewayUserTotp(username, {
+        backupCodeHashes: backupHashes,
+        lastUsedTotpCode: matched,
+      });
+
+      defaultRuntime.log("");
+      defaultRuntime.log(
+        theme.success("Backup codes regenerated. Save these — they cannot be recovered:"),
+      );
+      defaultRuntime.log("");
+      for (const bc of backupCodes) {
+        defaultRuntime.log(`  ${bc}`);
+      }
+      defaultRuntime.log("");
     });
 }

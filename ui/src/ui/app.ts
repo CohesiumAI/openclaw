@@ -81,7 +81,12 @@ import {
 } from "./app-tool-stream.ts";
 import { resolveInjectedAssistantIdentity } from "./assistant-identity.ts";
 import { startSessionRefresh, stopSessionRefresh } from "./auth-refresh.ts";
-import { login as authLogin, logout as authLogout } from "./auth.ts";
+import {
+  login as authLogin,
+  logout as authLogout,
+  submitTotpBackup,
+  submitTotpChallenge,
+} from "./auth.ts";
 import { loadAssistantIdentity as loadAssistantIdentityInternal } from "./controllers/assistant-identity.ts";
 import { loadChatHistory as loadChatHistoryInternal } from "./controllers/chat.ts";
 import { patchSession } from "./controllers/sessions.ts";
@@ -123,6 +128,11 @@ export class OpenClawApp extends LitElement {
   @state() loginPassword = "";
   @state() loginError: string | null = null;
   @state() loginLoading = false;
+  @state() totpChallengeSessionId: string | null = null;
+  @state() totpCode = "";
+  @state() totpError: string | null = null;
+  @state() totpLoading = false;
+  @state() totpBackupMode = false;
   @state() theme: ThemeMode = this.settings.theme ?? "system";
   @state() themeResolved: ResolvedTheme = "dark";
   @state() hello: GatewayHelloOk | null = null;
@@ -491,9 +501,48 @@ export class OpenClawApp extends LitElement {
       this.loginError = null;
       startSessionRefresh(this);
       connectGatewayInternal(this as unknown as Parameters<typeof connectGatewayInternal>[0]);
+    } else if (result.status === "totp-required") {
+      this.authStatus = "totp-challenge";
+      this.totpChallengeSessionId = result.challengeSessionId;
+      this.loginPassword = "";
+      this.totpCode = "";
+      this.totpError = null;
+      this.totpBackupMode = false;
     } else if (result.status === "error") {
       this.loginError = result.message;
     }
+  }
+
+  async handleTotpSubmit() {
+    if (this.totpLoading || !this.totpChallengeSessionId) {
+      return;
+    }
+    this.totpLoading = true;
+    this.totpError = null;
+    const code = this.totpCode.trim();
+    const result = this.totpBackupMode
+      ? await submitTotpBackup(this.totpChallengeSessionId, code, this.basePath)
+      : await submitTotpChallenge(this.totpChallengeSessionId, code, this.basePath);
+    this.totpLoading = false;
+    if (result.status === "authenticated") {
+      this.authStatus = "authenticated";
+      this.authUser = { username: result.user.username, role: result.user.role };
+      this.totpChallengeSessionId = null;
+      this.totpCode = "";
+      this.totpError = null;
+      startSessionRefresh(this);
+      connectGatewayInternal(this as unknown as Parameters<typeof connectGatewayInternal>[0]);
+    } else if (result.status === "error") {
+      this.totpError = result.message;
+    }
+  }
+
+  handleTotpBack() {
+    this.authStatus = "unauthenticated";
+    this.totpChallengeSessionId = null;
+    this.totpCode = "";
+    this.totpError = null;
+    this.totpBackupMode = false;
   }
 
   async handleLogout() {
@@ -508,6 +557,9 @@ export class OpenClawApp extends LitElement {
     this.loginUsername = "";
     this.loginPassword = "";
     this.loginError = null;
+    this.totpChallengeSessionId = null;
+    this.totpCode = "";
+    this.totpError = null;
   }
 
   setPassword(next: string) {

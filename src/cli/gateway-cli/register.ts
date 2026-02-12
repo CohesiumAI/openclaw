@@ -30,6 +30,7 @@ import {
   renderBeaconLines,
 } from "./discover.js";
 import { addGatewayRunCommand } from "./run.js";
+import { addGatewayTlsCommands } from "./tls.js";
 import { addGatewayUserCommands } from "./user.js";
 
 function styleHealthChannelLine(line: string, rich: boolean): string {
@@ -361,4 +362,5 @@ export function registerGatewayCli(program: Command) {
 
   addGatewayUserCommands(gateway);
   addCredentialsCommands(gateway);
+  addGatewayTlsCommands(gateway);
 }

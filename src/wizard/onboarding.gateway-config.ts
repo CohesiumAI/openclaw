@@ -8,6 +8,15 @@ import type {
 } from "./onboarding.types.js";
 import type { WizardPrompter } from "./prompts.js";
 import { normalizeGatewayTokenInput, randomToken } from "../commands/onboard-helpers.js";
+import { hashPassword } from "../gateway/auth-password.js";
+import {
+  buildTotpUri,
+  generateBackupCodes,
+  generateTotpSecret,
+  hashBackupCodes,
+  verifyTotp,
+} from "../gateway/auth-totp.js";
+import { createGatewayUser } from "../infra/auth-credentials.js";
 import { findTailscaleBinary } from "../infra/tailscale.js";
 
 // These commands are "high risk" (privacy writes/recording) and should be
@@ -203,24 +212,155 @@ export async function configureGatewayForOnboarding(
   }
 
   if (authMode === "password") {
-    const password =
-      flow === "quickstart" && quickstartGateway.password
-        ? quickstartGateway.password
-        : await prompter.text({
-            message: "Gateway password",
-            validate: (value) => (value?.trim() ? undefined : "Required"),
+    // Offer hashed credentials (recommended) vs legacy shared password
+    type PasswordMode = "hashed" | "legacy";
+    const passwordMode: PasswordMode =
+      flow === "quickstart"
+        ? "legacy"
+        : await prompter.select<PasswordMode>({
+            message: "Password auth mode",
+            options: [
+              {
+                value: "hashed",
+                label: "Hashed credentials (recommended)",
+                hint: "Create a user account with scrypt-hashed password",
+              },
+              {
+                value: "legacy",
+                label: "Shared password (legacy)",
+                hint: "Single password in config file",
+              },
+            ],
           });
-    nextConfig = {
-      ...nextConfig,
-      gateway: {
-        ...nextConfig.gateway,
-        auth: {
-          ...nextConfig.gateway?.auth,
-          mode: "password",
-          password: String(password).trim(),
+
+    if (passwordMode === "hashed") {
+      // Create a gateway user with hashed credentials
+      const username = await prompter.text({
+        message: "Admin username",
+        initialValue: "admin",
+        validate: (v) => {
+          if (!v || v.trim().length < 2) {
+            return "Minimum 2 characters";
+          }
         },
-      },
-    };
+      });
+      const pwd = await prompter.text({
+        message: "Password (min 8 chars)",
+        validate: (v) => {
+          if (!v || v.trim().length < 8) {
+            return "Minimum 8 characters";
+          }
+        },
+      });
+      const recoveryCode = await prompter.text({
+        message: "Recovery code (8-16 digits, for password reset)",
+        validate: (v) => {
+          if (!v || !/^\d{8,16}$/.test(v.trim())) {
+            return "Must be 8 to 16 digits";
+          }
+        },
+      });
+
+      const [passwordHash, recoveryCodeHash] = await Promise.all([
+        hashPassword(String(pwd).trim()),
+        hashPassword(String(recoveryCode).trim()),
+      ]);
+
+      const created = createGatewayUser({
+        username: String(username).trim(),
+        passwordHash,
+        role: "admin",
+        recoveryCodeHash,
+      });
+      if (!created) {
+        await prompter.note(`User "${username}" already exists. Skipping creation.`, "Note");
+      } else {
+        await prompter.note(`User "${username}" created (admin).`, "User Created");
+      }
+
+      // Optional 2FA setup
+      const want2fa = await prompter.confirm({
+        message: "Enable two-factor authentication (TOTP)?",
+        initialValue: false,
+      });
+      if (want2fa) {
+        const secret = generateTotpSecret();
+        const uri = buildTotpUri(secret, String(username).trim());
+        await prompter.note(
+          [
+            `TOTP secret: ${secret}`,
+            "",
+            `otpauth URI: ${uri}`,
+            "",
+            "Add this to your authenticator app, then enter the 6-digit code.",
+          ].join("\n"),
+          "2FA Setup",
+        );
+        const totpCode = await prompter.text({
+          message: "6-digit code from authenticator",
+          validate: (v) => {
+            if (!v || !/^\d{6}$/.test(v.trim())) {
+              return "Must be a 6-digit code";
+            }
+          },
+        });
+        const matched = verifyTotp(secret, String(totpCode).trim());
+        if (matched) {
+          const backupCodes = generateBackupCodes(10);
+          const backupHashes = await hashBackupCodes(backupCodes);
+          const { updateGatewayUserTotp } = await import("../infra/auth-credentials.js");
+          updateGatewayUserTotp(String(username).trim(), {
+            totpSecret: secret,
+            totpEnabled: true,
+            lastUsedTotpCode: matched,
+            backupCodeHashes: backupHashes,
+          });
+          await prompter.note(
+            ["2FA enabled. Save these backup codes:", "", ...backupCodes.map((c) => `  ${c}`)].join(
+              "\n",
+            ),
+            "Backup Codes",
+          );
+        } else {
+          await prompter.note(
+            "Invalid TOTP code. 2FA not enabled. You can set it up later via: openclaw gateway user totp-setup",
+            "2FA Skipped",
+          );
+        }
+      }
+
+      // Don't write plaintext password to config in hashed mode
+      nextConfig = {
+        ...nextConfig,
+        gateway: {
+          ...nextConfig.gateway,
+          auth: {
+            ...nextConfig.gateway?.auth,
+            mode: "password",
+          },
+        },
+      };
+    } else {
+      // Legacy shared password mode
+      const password =
+        flow === "quickstart" && quickstartGateway.password
+          ? quickstartGateway.password
+          : await prompter.text({
+              message: "Gateway password",
+              validate: (value) => (value?.trim() ? undefined : "Required"),
+            });
+      nextConfig = {
+        ...nextConfig,
+        gateway: {
+          ...nextConfig.gateway,
+          auth: {
+            ...nextConfig.gateway?.auth,
+            mode: "password",
+            password: String(password).trim(),
+          },
+        },
+      };
+    }
   } else if (authMode === "token") {
     nextConfig = {
       ...nextConfig,
@@ -235,6 +375,58 @@ export async function configureGatewayForOnboarding(
     };
   }
 
+  // TLS / reverse proxy setup (advanced flow only)
+  type TlsChoice = "off" | "self-signed" | "custom" | "reverse-proxy";
+  let tlsChoice: TlsChoice = "off";
+  let tlsCertPath: string | undefined;
+  let tlsKeyPath: string | undefined;
+  let trustedProxies: string[] | undefined;
+
+  if (flow !== "quickstart" && tailscaleMode === "off") {
+    tlsChoice = await prompter.select<TlsChoice>({
+      message: "HTTPS / TLS",
+      options: [
+        { value: "off", label: "No TLS (plain HTTP)", hint: "Default for loopback" },
+        { value: "self-signed", label: "Self-signed certificate (auto-generated)" },
+        { value: "custom", label: "Custom certificate (provide cert/key paths)" },
+        { value: "reverse-proxy", label: "Behind reverse proxy (proxy terminates TLS)" },
+      ],
+    });
+
+    if (tlsChoice === "custom") {
+      tlsCertPath = await prompter.text({
+        message: "Path to PEM certificate file",
+        validate: (v) => (v?.trim() ? undefined : "Required"),
+      });
+      tlsKeyPath = await prompter.text({
+        message: "Path to PEM private key file",
+        validate: (v) => (v?.trim() ? undefined : "Required"),
+      });
+    }
+
+    if (tlsChoice === "reverse-proxy") {
+      await prompter.note(
+        [
+          "Your reverse proxy must terminate TLS and forward:",
+          "  X-Forwarded-For  (client IP)",
+          "  X-Forwarded-Proto  (https)",
+          "",
+          "Docs: https://docs.openclaw.ai/gateway/reverse-proxy",
+        ].join("\n"),
+        "Reverse Proxy",
+      );
+      const proxiesInput = await prompter.text({
+        message: "Trusted proxy IPs/CIDRs (comma-separated)",
+        initialValue: "127.0.0.1, ::1",
+        validate: (v) => (v?.trim() ? undefined : "At least one IP required"),
+      });
+      trustedProxies = String(proxiesInput)
+        .split(",")
+        .map((s) => s.trim())
+        .filter(Boolean);
+    }
+  }
+
   nextConfig = {
     ...nextConfig,
     gateway: {
@@ -247,6 +439,16 @@ export async function configureGatewayForOnboarding(
         mode: tailscaleMode as GatewayTailscaleMode,
         resetOnExit: tailscaleResetOnExit,
       },
+      ...(tlsChoice === "self-signed" || tlsChoice === "custom"
+        ? {
+            tls: {
+              enabled: true,
+              ...(tlsCertPath ? { certPath: tlsCertPath } : {}),
+              ...(tlsKeyPath ? { keyPath: tlsKeyPath } : {}),
+            },
+          }
+        : {}),
+      ...(trustedProxies?.length ? { trustedProxies } : {}),
     },
   };
 

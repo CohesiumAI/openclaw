@@ -531,6 +531,10 @@ Sessions survive gateway restarts via an encrypted disk store:
 | **TLS**               | Native Node.js self-signed cert generation                       | RSA 2048, SAN: localhost/127.0.0.1/::1; no `openssl` CLI dependency                      |
 | **Password recovery** | `POST /auth/reset-password` with recovery code                   | Double-keyed progressive rate limiting; timing-safe scrypt verify; gated by auth mode    |
 | **Key rotation**      | Session key age warning (>365 days)                              | `generateOrLoadSessionKey()` warns on startup; suggests `openclaw credentials rotate`    |
+| **CLI 2FA**           | `gateway user totp-setup/disable/backup-regenerate`              | Full lifecycle: enable, disable, regenerate backup codes; password + TOTP code required  |
+| **CLI TLS**           | `gateway tls enable/disable/status/regenerate`                   | Manage local HTTPS; auto-generate self-signed or use custom cert/key paths               |
+| **Onboarding 2FA**    | Hashed credentials + optional TOTP during `openclaw onboard`     | Advanced flow: scrypt-hashed user + recovery code (8-16 digits) + inline 2FA setup       |
+| **Frontend 2FA**      | TOTP challenge screen in Web UI login flow                       | 6-digit code input, backup code toggle, back-to-login; consistent with login card style  |
 
 ---
 

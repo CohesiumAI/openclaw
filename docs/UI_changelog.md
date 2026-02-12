@@ -376,6 +376,24 @@ Updated feature documentation with 5 new sections (§21–25) and updates to 6 e
 
 - **`src/gateway/session-persistence.ts`**: `generateOrLoadSessionKey()` now checks key file `mtime`; warns if > 365 days old with rotation suggestion.
 
+### CLI: 2FA management + TLS commands — 2026-02-12
+
+- **`src/cli/gateway-cli/user.ts`**: recovery code regex extended to `8-16` digits. New commands: `gateway user totp-setup` (enable TOTP, display secret/URI, verify code, generate 10 backup codes), `gateway user totp-disable` (disable with password confirmation), `gateway user totp-backup-regenerate` (regenerate backup codes with password + TOTP verification). `gateway user list` now shows `totp: yes/no` column (text + JSON).
+- **`src/cli/gateway-cli/tls.ts`** (**new**): `gateway tls enable` (activate TLS, auto-generate self-signed cert), `gateway tls disable`, `gateway tls status` (show cert info, fingerprint, SAN, expiry), `gateway tls regenerate` (force new self-signed cert).
+
+### Onboarding: hashed credentials + 2FA + TLS/proxy — 2026-02-12
+
+- **`src/wizard/onboarding.gateway-config.ts`**: when auth=password in advanced flow, user can choose "Hashed credentials (recommended)" which creates a `GatewayUser` with scrypt-hashed password + recovery code (8-16 digits). Optional TOTP 2FA setup inline (secret display, code verify, backup codes). Legacy shared password still available.
+- **TLS/proxy prompt** (advanced flow, when Tailscale=off): "No TLS / Self-signed / Custom cert / Behind reverse proxy". Reverse proxy option prompts for `trustedProxies` IPs/CIDRs and writes to `gateway.trustedProxies`.
+
+### Frontend: 2FA TOTP login flow — 2026-02-12
+
+- **`ui/src/ui/auth.ts`**: `login()` now detects `totpRequired` + `challengeSessionId`. New functions: `submitTotpChallenge()`, `submitTotpBackup()`.
+- **`ui/src/ui/views/login.ts`**: new `renderTotpChallengeView` — 6-digit TOTP code input (numeric inputmode, autocomplete=one-time-code), backup code toggle, back-to-login link. Styled consistently with existing login card.
+- **`ui/src/ui/app.ts`**: new state fields (`totpChallengeSessionId`, `totpCode`, `totpError`, `totpLoading`, `totpBackupMode`). `handleLogin()` transitions to `totp-challenge` status on TOTP-required response. New `handleTotpSubmit()` and `handleTotpBack()` methods.
+- **`ui/src/ui/app-render.ts`**: auth gate renders TOTP challenge view when `authStatus === "totp-challenge"`.
+- **`ui/src/ui/app-view-state.ts`**: `AuthStatus` type extended with `"totp-challenge"`.
+
 ### v1 → v2 migration safety
 
 - All new features gated by auth mode — token-mode users see zero side effects.
