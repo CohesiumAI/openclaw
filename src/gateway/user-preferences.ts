@@ -55,20 +55,32 @@ const FIELD_VALIDATORS: Record<string, (v: unknown) => boolean> = {
   chatRenderMarkdown: (v) => typeof v === "boolean",
   splitRatio: (v) => typeof v === "number" && v >= 0.2 && v <= 0.9,
   navCollapsed: (v) => typeof v === "boolean",
-  navGroupsCollapsed: (v) => typeof v === "object" && v !== null && !Array.isArray(v),
+  navGroupsCollapsed: (v) =>
+    typeof v === "object" &&
+    v !== null &&
+    !Array.isArray(v) &&
+    Object.values(v as Record<string, unknown>).every((val) => typeof val === "boolean"),
   showDefaultWebSession: (v) => typeof v === "boolean",
-  sessionsActiveMinutes: (v) => typeof v === "number" && Number.isFinite(v) && v >= 0,
+  sessionsActiveMinutes: (v) =>
+    typeof v === "number" && Number.isFinite(v) && v >= 0 && v <= 525_600,
   ttsAutoPlay: (v) => typeof v === "boolean",
-  maxAttachmentMb: (v) => typeof v === "number" && Number.isFinite(v) && v > 0,
+  maxAttachmentMb: (v) => typeof v === "number" && Number.isFinite(v) && v > 0 && v <= 500,
   pinnedSessionKeys: (v) =>
-    Array.isArray(v) && v.every((k) => typeof k === "string"),
+    Array.isArray(v) &&
+    v.length <= 1000 &&
+    v.every((k) => typeof k === "string" && k.length <= 200),
   archivedSessionKeys: (v) =>
-    Array.isArray(v) && v.every((k) => typeof k === "string"),
+    Array.isArray(v) &&
+    v.length <= 5000 &&
+    v.every((k) => typeof k === "string" && k.length <= 200),
 };
 
 // Sanitize username for filesystem path — alphanumeric + dash/underscore only
 function sanitizeUsername(username: string): string {
-  return username.trim().toLowerCase().replace(/[^a-z0-9_-]/g, "_");
+  return username
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9_-]/g, "_");
 }
 
 function resolvePrefsPath(username: string, stateDir?: string): string {

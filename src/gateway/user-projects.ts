@@ -21,6 +21,10 @@ const SAFE_ID_RE = /^[a-zA-Z0-9][a-zA-Z0-9_-]{0,63}$/;
 // Max file size: 25 MB base64 ≈ ~34 MB encoded
 const MAX_FILE_DATA_LENGTH = 35_000_000;
 
+// Resource limits per user (DoS prevention)
+const MAX_PROJECTS_PER_USER = 100;
+const MAX_FILES_PER_PROJECT = 500;
+
 export type ProjectFileMeta = {
   id: string;
   fileName: string;
@@ -45,7 +49,10 @@ type ProjectsFile = {
 };
 
 function sanitizeUsername(username: string): string {
-  return username.trim().toLowerCase().replace(/[^a-z0-9_-]/g, "_");
+  return username
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9_-]/g, "_");
 }
 
 function isSafeId(id: string): boolean {
@@ -104,6 +111,9 @@ export function createProject(
     return null;
   }
   const data = loadProjectsFile(username, stateDir);
+  if (data.projects.length >= MAX_PROJECTS_PER_USER) {
+    return null; // resource limit
+  }
   if (data.projects.some((p) => p.id === params.id)) {
     return null; // duplicate
   }
@@ -111,7 +121,9 @@ export function createProject(
     id: params.id,
     name: params.name.slice(0, 200),
     color: params.color.slice(0, 30),
-    sessionKeys: Array.isArray(params.sessionKeys) ? params.sessionKeys.slice(0, 500) : [],
+    sessionKeys: Array.isArray(params.sessionKeys)
+      ? params.sessionKeys.filter((k): k is string => typeof k === "string").slice(0, 500)
+      : [],
     files: [],
     createdAt: Date.now(),
   };
@@ -141,7 +153,9 @@ export function updateProject(
     project.color = patch.color.slice(0, 30);
   }
   if (Array.isArray(patch.sessionKeys)) {
-    project.sessionKeys = patch.sessionKeys.slice(0, 500);
+    project.sessionKeys = patch.sessionKeys
+      .filter((k): k is string => typeof k === "string")
+      .slice(0, 500);
   }
   saveProjectsFile(username, data, stateDir);
   return project;
@@ -173,7 +187,13 @@ export function deleteProject(username: string, projectId: string, stateDir?: st
 export function putProjectFile(
   username: string,
   projectId: string,
-  file: { fileId: string; fileName: string; dataUrl: string; mimeType?: string; sessionKey?: string },
+  file: {
+    fileId: string;
+    fileName: string;
+    dataUrl: string;
+    mimeType?: string;
+    sessionKey?: string;
+  },
   stateDir?: string,
 ): ProjectFileMeta | null {
   if (!isSafeId(projectId) || !isSafeId(file.fileId)) {
@@ -185,6 +205,11 @@ export function putProjectFile(
   const data = loadProjectsFile(username, stateDir);
   const project = data.projects.find((p) => p.id === projectId);
   if (!project) {
+    return null;
+  }
+  // Enforce file count limit (re-put of existing file is always allowed)
+  const isNewFile = !project.files.some((f) => f.id === file.fileId);
+  if (isNewFile && project.files.length >= MAX_FILES_PER_PROJECT) {
     return null;
   }
   // Write binary to disk
