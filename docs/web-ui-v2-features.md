@@ -2,8 +2,7 @@
 
 This document provides an exhaustive comparison of every feature added or changed in Web UI V2 relative to V1.
 
-**V2 URL:** `http://localhost:18789/v2/chat`
-**V1 URL:** `http://localhost:18789/chat`
+**URL:** `http://localhost:18789/chat` (V2 is now the default and only UI)
 
 ---
 
@@ -54,7 +53,7 @@ This document provides an exhaustive comparison of every feature added or change
 
 - **Pin/Unpin** via the **⋯** (three dots) menu button on any conversation item.
 - Pinned conversations appear in a dedicated collapsible **"Pinned"** section above the date-grouped list.
-- Pin state is persisted in `pinnedSessionKeys` (localStorage).
+- Pin state is persisted in `pinnedSessionKeys` (synced cross-browser via gateway when authenticated).
 - Mutual exclusion: adding a chat to a project automatically removes it from pinned.
 
 ---
@@ -64,7 +63,7 @@ This document provides an exhaustive comparison of every feature added or change
 - **Archive/Unarchive** via the **⋯** (three dots) menu button on any conversation item.
 - Archived chats are hidden from the sidebar (unless it's the currently active session).
 - Dedicated **Archive modal** accessible from the settings modal shows all archived conversations with an "Unarchive" button for each.
-- Archive state is persisted in `archivedSessionKeys` (localStorage).
+- Archive state is persisted in `archivedSessionKeys` (synced cross-browser via gateway when authenticated).
 
 ---
 
@@ -99,13 +98,15 @@ Projects group multiple chat sessions and their files into a single organization
 - **Slash commands**: `/project add <name>` and `/project remove <name>`.
 - Mutual exclusion: a chat can only belong to one project at a time.
 
-### 5.6 Project Files (IndexedDB Storage)
+### 5.6 Project Files (Server-Side + IndexedDB Fallback)
 
 - When a chat is added to a project, all existing image attachments and file content blocks are automatically imported into the project's file store.
-- Binary file data is stored in **IndexedDB** (`openclaw-project-files` database) with project-scoped indexing.
+- **Primary storage**: gateway server via `user.projects.files.*` WS methods (cross-browser sync).
+- **Fallback**: IndexedDB (`openclaw-project-files` database) when gateway is disconnected or unauthenticated.
 - Files can be downloaded from the project detail view.
 - When a chat is removed from a project, its associated files are also cleaned up.
 - Full CRUD operations: `putProjectFile`, `getProjectFile`, `removeProjectFiles`, `removeAllProjectFiles`, `importChatFilesIntoProject`.
+- **Server-side limits**: 35 MB max file size, 500 files per project, strict ID validation (`^[a-zA-Z0-9][a-zA-Z0-9_-]{0,63}$`).
 
 ### 5.7 Project Slash Commands
 
@@ -278,22 +279,33 @@ Full CLI-style management from the chat input:
 
 ---
 
-## 17. UI Settings Persistence
+## 17. UI Settings Persistence & Cross-Browser Sync
 
-V2 adds the following persisted settings (all in `localStorage` under `openclaw.control.settings.v1`):
+V2 persists settings in `localStorage` under `openclaw.control.settings.v1`. When the user is authenticated via the gateway, a subset of settings is **synced server-side** for cross-browser access.
 
-| Setting                 | Type      | Default | Description                                |
-| ----------------------- | --------- | ------- | ------------------------------------------ |
-| `splitRatio`            | number    | 0.6     | Sidebar split ratio (0.4–0.7)              |
-| `navCollapsed`          | boolean   | false   | Collapsible sidebar state                  |
-| `navGroupsCollapsed`    | Record    | {}      | Per-group collapsed state (e.g., "pinned") |
-| `showDefaultWebSession` | boolean   | false   | Show auto-created web session in sidebar   |
-| `sessionsActiveMinutes` | number    | 0       | Sidebar filter: 0=all, >0=recent N minutes |
-| `ttsAutoPlay`           | boolean   | false   | Auto-play TTS on responses                 |
-| `maxAttachmentMb`       | number    | 25      | Max file attachment size                   |
-| `pinnedSessionKeys`     | string[]  | []      | User-pinned sessions                       |
-| `archivedSessionKeys`   | string[]  | []      | Archived (hidden) sessions                 |
-| `projects`              | Project[] | []      | User-created project groups                |
+| Setting                 | Type      | Default | Synced | Description                                |
+| ----------------------- | --------- | ------- | ------ | ------------------------------------------ |
+| `splitRatio`            | number    | 0.6     | Yes    | Sidebar split ratio (0.2–0.9)              |
+| `navCollapsed`          | boolean   | false   | Yes    | Collapsible sidebar state                  |
+| `navGroupsCollapsed`    | Record    | {}      | Yes    | Per-group collapsed state (e.g., "pinned") |
+| `showDefaultWebSession` | boolean   | false   | Yes    | Show auto-created web session in sidebar   |
+| `sessionsActiveMinutes` | number    | 0       | Yes    | Sidebar filter: 0=all, >0=recent N minutes |
+| `ttsAutoPlay`           | boolean   | false   | Yes    | Auto-play TTS on responses                 |
+| `maxAttachmentMb`       | number    | 25      | Yes    | Max file attachment size (capped at 500)   |
+| `pinnedSessionKeys`     | string[]  | []      | Yes    | User-pinned sessions (max 1000)            |
+| `archivedSessionKeys`   | string[]  | []      | Yes    | Archived sessions (max 5000)               |
+| `projects`              | Project[] | []      | Yes    | User-created project groups (max 100)      |
+| `chatFocusMode`         | boolean   | false   | Yes    | Focus mode for chat                        |
+| `chatShowThinking`      | boolean   | false   | Yes    | Show model thinking blocks                 |
+| `chatStreamResponses`   | boolean   | true    | Yes    | Stream responses in real-time              |
+| `chatRenderMarkdown`    | boolean   | true    | Yes    | Render markdown in messages                |
+
+### 17.1 Sync Mechanism
+
+- **On connect**: server preferences are fetched and merged (server wins for synced keys).
+- **On change**: debounced push (600ms) to server via `user.preferences.set` WS method.
+- **Migration**: if server is empty, local settings are pushed as initial sync.
+- **Offline fallback**: localStorage-only when gateway is disconnected.
 
 ---
 
@@ -319,12 +331,19 @@ V2 adds the following persisted settings (all in `localStorage` under `openclaw.
 
 ## 19. New Controller Modules
 
-| Module                            | Purpose                                                          |
-| --------------------------------- | ---------------------------------------------------------------- |
-| `controllers/chat-commands.ts`    | Fetches slash command catalog from gateway (`chat.commands` RPC) |
-| `controllers/models.ts`           | Loads model catalog from gateway (`models.list` RPC)             |
-| `controllers/project-commands.ts` | Handles `/project` slash commands locally                        |
-| `controllers/project-files.ts`    | IndexedDB CRUD for project file binary storage                   |
+| Module                                | Purpose                                                           |
+| ------------------------------------- | ----------------------------------------------------------------- |
+| `controllers/chat-commands.ts`        | Fetches slash command catalog from gateway (`chat.commands` RPC)  |
+| `controllers/models.ts`               | Loads model catalog from gateway (`models.list` RPC)              |
+| `controllers/project-commands.ts`     | Handles `/project` slash commands locally                         |
+| `controllers/project-files.ts`        | Project file storage (WS primary, IndexedDB fallback)             |
+| `controllers/project-files-client.ts` | Gateway client registry for project file WS routing               |
+| `auth.ts`                             | Auth API client (`/auth/login`, `/auth/me`, `/auth/logout`)       |
+| `auth-refresh.ts`                     | Automatic session refresh (sliding window, Page Visibility API)   |
+| `views/login.ts`                      | Login screen component (username/password form)                   |
+| `preferences-sync.ts`                 | Debounced sync of user preferences to/from gateway                |
+| `projects-sync.ts`                    | Sync user projects to/from gateway (migration + mutations)        |
+| `device-identity.ts`                  | Device Ed25519 identity (migrated from localStorage to IndexedDB) |
 
 ---
 
@@ -337,21 +356,194 @@ V2 adds the following persisted settings (all in `localStorage` under `openclaw.
 
 ---
 
+## 21. Authentication & User Management
+
+### 21.1 Login Screen
+
+- **Login gate**: the UI displays a login form when the gateway requires password authentication.
+- Username/password fields with autofocus, Enter-to-submit, loading state, and error display.
+- On successful login, the gateway sets an **HttpOnly session cookie** (`openclaw_session`) — no tokens stored client-side.
+
+### 21.2 HTTP Auth Endpoints
+
+| Endpoint        | Method | Description                                       |
+| --------------- | ------ | ------------------------------------------------- |
+| `/auth/login`   | POST   | Authenticate with username + password             |
+| `/auth/logout`  | POST   | Clear session cookie                              |
+| `/auth/me`      | GET    | Check current session (returns user + CSRF token) |
+| `/auth/refresh` | POST   | Sliding window session renewal                    |
+
+### 21.3 Session Management
+
+- **30-minute TTL** with sliding window refresh.
+- **Auto-refresh**: the UI calls `/auth/refresh` every 5 minutes while the tab is visible.
+- **Page Visibility API**: pauses refresh when tab is hidden, refreshes immediately on return if session is stale (>10 min hidden).
+- On refresh failure (401), the user is automatically redirected to the login screen.
+
+### 21.4 CLI User Management
+
+Full user CRUD via the CLI:
+
+```
+openclaw user create    # Interactive: username, password, role, optional recovery code
+openclaw user passwd    # Change password for existing user
+openclaw user list      # List all gateway users
+openclaw user delete    # Delete a user with confirmation
+openclaw user rename    # Rename a user
+openclaw user recovery  # Set/update recovery code
+```
+
+- Passwords hashed with **scrypt** (N=16384, r=8, p=1).
+- Recovery codes (4–12 digit numeric) hashed with the same scheme.
+- Credentials stored in `~/.openclaw/credentials/gateway-users.json` (mode `0o600`).
+
+### 21.5 Roles & RBAC
+
+- Users are assigned a **role** (`admin`, `operator`, `viewer`).
+- Roles map to **scopes** (`operator.admin`, `operator.read`, `operator.write`, `operator.approvals`, `operator.pairing`).
+- Every WS method is gated by scope — read methods require `operator.read`, mutations require `operator.write`, config changes require `operator.admin`.
+
+---
+
+## 22. Security Hardening
+
+### 22.1 Content Security Policy (CSP)
+
+- Strict CSP headers on all gateway HTTP responses.
+- `script-src 'self'`, `style-src 'self' 'unsafe-inline'`, `connect-src 'self' ws: wss:`.
+- Prevents inline script injection (XSS).
+
+### 22.2 HSTS
+
+- Conditional `Strict-Transport-Security` header when gateway detects HTTPS (via reverse proxy headers).
+
+### 22.3 CSRF Protection
+
+- CSRF token returned on login and `/auth/me`.
+- Validated on state-changing requests.
+
+### 22.4 Timing-Safe Authentication
+
+- **Login**: constant-time password comparison via scrypt (no early exit on wrong username).
+- **WS auth**: timing-safe token comparison prevents oracle attacks.
+- **Hooks tokens**: timing-safe comparison for webhook authentication.
+
+### 22.5 Rate Limiting
+
+- Login endpoint rate-limited: 5 failed attempts trigger a 429 response.
+
+### 22.6 Network Exposure Check
+
+- Gateway warns on startup if bound to `0.0.0.0` without authentication configured.
+
+### 22.7 Device Identity Hardening
+
+- Ed25519 private key migrated from `localStorage` to **IndexedDB** (harder to exfiltrate via XSS).
+- Legacy `localStorage` key (`openclaw-device-identity-v1`) is purged after migration.
+- Auth tokens no longer stored client-side — session cookies handle authentication.
+
+### 22.8 Input Validation & Resource Limits
+
+Server-side validation on all user-data endpoints:
+
+| Resource                | Limit                                    |
+| ----------------------- | ---------------------------------------- |
+| Project IDs / File IDs  | Regex `^[a-zA-Z0-9][a-zA-Z0-9_-]{0,63}$` |
+| Projects per user       | 100                                      |
+| Files per project       | 500                                      |
+| File data size          | 35 MB                                    |
+| Project name            | 200 chars                                |
+| File name               | 255 chars                                |
+| Pinned sessions         | 1000 entries, 200 chars each             |
+| Archived sessions       | 5000 entries, 200 chars each             |
+| `maxAttachmentMb`       | 1–500                                    |
+| `sessionsActiveMinutes` | 0–525,600 (1 year)                       |
+| `navGroupsCollapsed`    | Values must be booleans                  |
+| Username (filesystem)   | Sanitized to `[a-z0-9_-]` only           |
+
+---
+
+## 23. Cross-Browser Synchronization
+
+### 23.1 Architecture
+
+- **Server-side storage**: JSON files in `~/.openclaw/user-preferences/<username>.json` and `~/.openclaw/user-projects/<username>/` (mode `0o600`).
+- **Transport**: WebSocket RPC methods (`user.preferences.get/set`, `user.projects.*`, `user.projects.files.*`).
+- **Gating**: only available for password-authenticated users (session cookie auth). Token-only connections fall back to local storage.
+
+### 23.2 WS Methods
+
+| Method                       | Scope | Description                        |
+| ---------------------------- | ----- | ---------------------------------- |
+| `user.preferences.get`       | read  | Fetch preferences for current user |
+| `user.preferences.set`       | write | Merge-patch preferences            |
+| `user.projects.list`         | read  | List all projects                  |
+| `user.projects.create`       | write | Create a project                   |
+| `user.projects.update`       | write | Update project name/color/sessions |
+| `user.projects.delete`       | write | Delete project + cleanup files     |
+| `user.projects.files.get`    | read  | Retrieve a project file (dataUrl)  |
+| `user.projects.files.put`    | write | Store a project file               |
+| `user.projects.files.delete` | write | Remove project files by IDs        |
+
+### 23.3 Preferences Sync Flow
+
+1. On gateway connect: fetch server prefs via `user.preferences.get`.
+2. Merge: server values win for synced keys (server is source of truth).
+3. If server is empty: push local settings as initial migration.
+4. On each local change: debounced push (600ms) via `user.preferences.set`.
+5. Whitelist-based field validation server-side (unknown/invalid fields silently rejected).
+
+### 23.4 Projects Sync Flow
+
+1. On connect: fetch server projects via `user.projects.list`.
+2. If server has projects: use as source of truth, overwrite local.
+3. If server is empty but local has projects: migrate each to server.
+4. On local mutations (create/update/delete): push to server fire-and-forget.
+
+### 23.5 Project Files Sync
+
+- `putProjectFile`, `getProjectFile`, `removeProjectFiles` try WS methods first.
+- On WS failure or disconnection, fall back to IndexedDB.
+- `removeAllProjectFiles` always cleans IndexedDB (server cleanup handled by `user.projects.delete`).
+- Code-split preserved: `project-files-client.ts` (gateway registry) is statically imported, while `project-files.ts` (IndexedDB code) remains dynamically imported.
+
+---
+
+## 24. Unified Settings Panel
+
+- Redesigned settings modal with **search** (filters settings by label).
+- **Visual indicators**: active/non-default settings highlighted.
+- **Prefill**: settings fields show current values on open.
+- Organized into collapsible sections: Chat, Display, Sessions, TTS, Attachments.
+
+---
+
+## 25. V2 as Default UI
+
+- V1/V2 build split removed — V2 is the single UI served at `/chat`.
+- Legacy V1 routes removed from the gateway.
+- Single Vite build output (no conditional V1/V2 compilation).
+
+---
+
 ## Summary
 
-| Category         | V1                    | V2                                                  |
-| ---------------- | --------------------- | --------------------------------------------------- |
-| Layout           | Tab-based dashboard   | ChatGPT-style sidebar + chat                        |
-| Conversations    | Single active session | Multi-chat with sidebar list                        |
-| Organization     | None                  | Pin, Archive, Projects                              |
-| File Attachments | Basic image paste     | Multi-file, paste, picker, preview, size validation |
-| Model Selection  | Config-only           | Live hot-swap dropdown in compose bar               |
-| Skills           | Settings page only    | Per-session toggle popover in compose bar           |
-| Voice            | None                  | Speech-to-text input + TTS read-aloud               |
-| Search           | None                  | Cmd+K modal with date-grouped results               |
-| Commands         | None                  | Slash command autocomplete popover                  |
-| Message Actions  | None                  | Regenerate, Edit, Resend, Read Aloud                |
-| Context Menu (⋯) | None                  | Pin, Archive, Project, Delete via three-dots button |
-| Settings         | Inline in tabs        | Centralized modal with all options                  |
-| CSS              | ~2,400 lines          | ~5,800 lines (+3,400)                               |
-| JS Modules       | 127 bundled           | 133 bundled (+6 new)                                |
+| Category           | V1                    | V2                                                  |
+| ------------------ | --------------------- | --------------------------------------------------- |
+| Layout             | Tab-based dashboard   | ChatGPT-style sidebar + chat                        |
+| Authentication     | Token-only            | Login screen, password auth, RBAC, session cookies  |
+| Conversations      | Single active session | Multi-chat with sidebar list                        |
+| Organization       | None                  | Pin, Archive, Projects                              |
+| File Attachments   | Basic image paste     | Multi-file, paste, picker, preview, size validation |
+| Model Selection    | Config-only           | Live hot-swap dropdown in compose bar               |
+| Skills             | Settings page only    | Per-session toggle popover in compose bar           |
+| Voice              | None                  | Speech-to-text input + TTS read-aloud               |
+| Search             | None                  | Cmd+K modal with date-grouped results               |
+| Commands           | None                  | Slash command autocomplete popover                  |
+| Message Actions    | None                  | Regenerate, Edit, Resend, Read Aloud                |
+| Context Menu (⋯)   | None                  | Pin, Archive, Project, Delete via three-dots button |
+| Settings           | Inline in tabs        | Centralized modal with search + visual indicators   |
+| Cross-Browser Sync | None                  | Preferences, projects, files synced via gateway     |
+| Security           | Basic token           | CSP, HSTS, CSRF, timing-safe auth, RBAC scopes      |
+| CSS                | ~2,400 lines          | ~5,800 lines (+3,400)                               |
+| JS Modules         | 127 bundled           | 143+ bundled (+16 new)                              |
