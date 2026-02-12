@@ -21,6 +21,7 @@ import {
 } from "../daemon-cli.js";
 import { withProgress } from "../progress.js";
 import { callGatewayCli, gatewayCallOpts } from "./call.js";
+import { addCredentialsCommands } from "./credentials.js";
 import {
   dedupeBeacons,
   parseDiscoverTimeoutMs,
@@ -359,4 +360,5 @@ export function registerGatewayCli(program: Command) {
     });
 
   addGatewayUserCommands(gateway);
+  addCredentialsCommands(gateway);
 }
