@@ -346,7 +346,7 @@ export function createGatewayHttpServer(opts: {
       const trustedProxies = configSnapshot.gateway?.trustedProxies ?? [];
 
       // Auth endpoints (login/logout/me/refresh) — must run before any other handler
-      if (handleAuthHttpRequest(req, res, { trustedProxies })) {
+      if (handleAuthHttpRequest(req, res, { trustedProxies, resolvedAuth })) {
         return;
       }
 

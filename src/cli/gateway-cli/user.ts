@@ -21,7 +21,7 @@ import { defaultRuntime } from "../../runtime.js";
 import { isRich, theme } from "../../terminal/theme.js";
 
 const MIN_PASSWORD_LENGTH = 8;
-const RECOVERY_CODE_RE = /^\d{4,12}$/;
+const RECOVERY_CODE_RE = /^\d{8,12}$/;
 
 function guardCancel<T>(value: T | symbol): T {
   if (isCancel(value)) {
@@ -59,10 +59,10 @@ async function promptPasswordTwice(label: string): Promise<string> {
 async function promptRecoveryCodeTwice(): Promise<string> {
   const first = guardCancel(
     await password({
-      message: "Recovery code (4-12 digits)",
+      message: "Recovery code (8-12 digits)",
       validate: (v) => {
         if (!v || !RECOVERY_CODE_RE.test(v)) {
-          return "Must be 4 to 12 digits";
+          return "Must be 8 to 12 digits";
         }
       },
     }),

@@ -342,3 +342,43 @@ Updated feature documentation with 5 new sections (§21–25) and updates to 6 e
 - `initSessionPersistence()` called on gateway start; `flushSessionsToDisk()` on shutdown.
 - 9 new unit tests (`session-persistence.test.ts`), 1 integration test in `auth-sessions.test.ts`.
 - §22.13 (Encrypted Session Persistence) and §22.14 (Security Hardening Summary table) added to `web-ui-v2-features.md`.
+
+---
+
+## Security Roadmap P0–P3 — 2026-02-12
+
+### security(P0): progressive rate limiting + recovery code endpoint
+
+- **`src/gateway/rate-limiter.ts`** (**new**): generic progressive rate limiter (3→30s, 6→1min, 9→5min, 12+→15min) with double-keying (IP + username).
+- **`src/gateway/auth-http.ts`**: refactored login rate limiter to use progressive module. Added `POST /auth/reset-password` (gated by `useHashedCredentials`, double-keyed rate limiting, timing-safe scrypt verify). Added `GET /auth/capabilities` for frontend feature discovery.
+- **`src/cli/gateway-cli/user.ts`**: recovery code regex tightened from `4-12` to `8-12` digits for new codes. Existing shorter codes remain valid.
+- **`src/gateway/server.impl.ts`**: `initSessionPersistence()` now gated by `resolvedAuth.useHashedCredentials` (v1 compat: no side effects in token mode). All new init modules wrapped in try/catch (fail-open).
+
+### security(P1): audit logging
+
+- **`src/gateway/audit-log.ts`** (**new**): singleton JSON Lines audit logger to `~/.openclaw/logs/audit.jsonl` (mode `0o600`). Async buffer (flush every 1s or 100 entries), sync flush on shutdown, file rotation at 50 MB with configurable retention.
+- Instrumented `auth-http.ts`: login success/fail, logout, revoke-all, recovery success/fail.
+- Audit init/shutdown integrated into `server.impl.ts` (all auth modes, fail-open).
+
+### security(P2): native Node.js TLS certificate generation
+
+- **`src/infra/tls/generate.ts`** (**new**): pure Node.js self-signed X.509 certificate generation using `node:crypto` (RSA 2048, SHA256, SAN: localhost + 127.0.0.1 + ::1, 3650-day validity). Replaces `openssl` CLI dependency.
+- **`src/infra/tls/gateway.ts`**: `generateSelfSignedCert` refactored to use native generation. No external binary required.
+
+### security(P3a): 2FA TOTP with backup codes
+
+- **`src/gateway/auth-totp.ts`** (**new**): RFC 6238 TOTP implementation using `node:crypto` HMAC-SHA1. Base32 encoding, ±1 window verification, anti-replay (`lastUsedTotpCode`), `otpauth://` URI builder. Backup codes: 8-char alphanumeric, scrypt-hashed.
+- **`src/infra/auth-credentials.ts`**: `GatewayUser` extended with optional `totpSecret`, `totpEnabled`, `backupCodeHashes`, `lastUsedTotpCode`. New `updateGatewayUserTotp()` function.
+- **`src/gateway/auth-sessions.ts`**: `AuthSession` extended with `pendingTotpChallenge`. Added `getPendingTotpSession()` and `promoteTotpSession()` for 2FA flow. `getAuthSession()` excludes pending TOTP sessions.
+- **`src/gateway/auth-http.ts`**: 4 new endpoints — `POST /auth/totp/setup`, `/auth/totp/verify`, `/auth/totp/challenge`, `/auth/totp/backup`. Login flow modified: if `totpEnabled`, creates partial session (5 min TTL) instead of full session.
+
+### security(P3b): session key age warning
+
+- **`src/gateway/session-persistence.ts`**: `generateOrLoadSessionKey()` now checks key file `mtime`; warns if > 365 days old with rotation suggestion.
+
+### v1 → v2 migration safety
+
+- All new features gated by auth mode — token-mode users see zero side effects.
+- All init modules wrapped in try/catch (fail-open) — gateway never fails to start.
+- New config fields optional with safe defaults.
+- 11 new test files covering rate limiter, audit logging, TLS generation, TOTP, and backup codes.

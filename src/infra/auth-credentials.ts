@@ -13,8 +13,16 @@ export type GatewayUser = {
   username: string;
   passwordHash: string;
   role: GatewayUserRole;
-  /** Hashed numeric recovery code (4-12 digits) for password reset. */
+  /** Hashed numeric recovery code (8-12 digits) for password reset. */
   recoveryCodeHash?: string;
+  /** Encrypted TOTP secret (AES-256-GCM with machine key). */
+  totpSecret?: string;
+  /** Whether 2FA TOTP is enabled for this user. */
+  totpEnabled?: boolean;
+  /** Scrypt-hashed backup codes for 2FA recovery. */
+  backupCodeHashes?: string[];
+  /** Last successfully verified TOTP code (anti-replay). */
+  lastUsedTotpCode?: string;
   createdAt: number;
   updatedAt: number;
 };
@@ -194,4 +202,39 @@ export function updateGatewayUsername(
 /** Check if any gateway users exist (for onboarding detection). */
 export function hasGatewayUsers(stateDir?: string): boolean {
   return listGatewayUsers(stateDir).length > 0;
+}
+
+/** Update TOTP fields for an existing user. Returns false if user not found. */
+export function updateGatewayUserTotp(
+  username: string,
+  fields: {
+    totpSecret?: string;
+    totpEnabled?: boolean;
+    backupCodeHashes?: string[];
+    lastUsedTotpCode?: string;
+  },
+  stateDir?: string,
+): boolean {
+  const filePath = resolveGatewayUsersPath(stateDir);
+  const data = loadUsersFile(filePath);
+  const normalized = username.trim().toLowerCase();
+  const user = data.users.find((u) => u.username.toLowerCase() === normalized);
+  if (!user) {
+    return false;
+  }
+  if (fields.totpSecret !== undefined) {
+    user.totpSecret = fields.totpSecret;
+  }
+  if (fields.totpEnabled !== undefined) {
+    user.totpEnabled = fields.totpEnabled;
+  }
+  if (fields.backupCodeHashes !== undefined) {
+    user.backupCodeHashes = fields.backupCodeHashes;
+  }
+  if (fields.lastUsedTotpCode !== undefined) {
+    user.lastUsedTotpCode = fields.lastUsedTotpCode;
+  }
+  user.updatedAt = Date.now();
+  saveUsersFile(filePath, data);
+  return true;
 }

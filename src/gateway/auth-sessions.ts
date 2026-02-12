@@ -25,6 +25,8 @@ export type AuthSession = {
   lastActivityAt: number;
   /** CSRF token bound to this session. */
   csrfToken: string;
+  /** If true, session is a partial 2FA challenge — no WS/API access until TOTP verified. */
+  pendingTotpChallenge?: boolean;
 };
 
 const SESSION_TTL_MS = 30 * 60 * 1000; // 30 minutes
@@ -118,7 +120,7 @@ export function createAuthSession(params: {
   return session;
 }
 
-/** Get a session by ID, returns null if expired or not found. */
+/** Get a session by ID, returns null if expired, not found, or pending TOTP challenge. */
 export function getAuthSession(sessionId: string): AuthSession | null {
   const session = sessions.get(sessionId);
   if (!session) {
@@ -128,6 +130,43 @@ export function getAuthSession(sessionId: string): AuthSession | null {
     sessions.delete(sessionId);
     return null;
   }
+  // Partial 2FA sessions are not valid for normal access
+  if (session.pendingTotpChallenge) {
+    return null;
+  }
+  return session;
+}
+
+/** Get a pending TOTP challenge session (for 2FA verification only). */
+export function getPendingTotpSession(sessionId: string): AuthSession | null {
+  const session = sessions.get(sessionId);
+  if (!session) {
+    return null;
+  }
+  if (Date.now() > session.expiresAt) {
+    sessions.delete(sessionId);
+    return null;
+  }
+  if (!session.pendingTotpChallenge) {
+    return null;
+  }
+  return session;
+}
+
+/** Promote a pending TOTP session to a full session. */
+export function promoteTotpSession(sessionId: string): AuthSession | null {
+  const session = sessions.get(sessionId);
+  if (!session || !session.pendingTotpChallenge) {
+    return null;
+  }
+  if (Date.now() > session.expiresAt) {
+    sessions.delete(sessionId);
+    return null;
+  }
+  session.pendingTotpChallenge = undefined;
+  session.expiresAt = Date.now() + SESSION_TTL_MS;
+  session.lastActivityAt = Date.now();
+  triggerPersist();
   return session;
 }
 

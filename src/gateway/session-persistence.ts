@@ -31,14 +31,31 @@ function resolveSessionsPath(stateDir: string): string {
   return path.join(stateDir, SESSIONS_DIR, SESSIONS_FILENAME);
 }
 
+const KEY_AGE_WARN_DAYS = 365;
+
 /** Load or generate a 32-byte machine encryption key. */
-export function generateOrLoadSessionKey(stateDir: string): Buffer {
+export function generateOrLoadSessionKey(
+  stateDir: string,
+  log?: { warn?: (msg: string) => void },
+): Buffer {
   const keyPath = resolveKeyPath(stateDir);
   try {
     if (fs.existsSync(keyPath)) {
       const hex = fs.readFileSync(keyPath, "utf8").trim();
       const buf = Buffer.from(hex, "hex");
       if (buf.length === KEY_LENGTH) {
+        // P3b: warn if key is older than 365 days
+        try {
+          const stat = fs.statSync(keyPath);
+          const ageDays = Math.floor((Date.now() - stat.mtimeMs) / (1000 * 60 * 60 * 24));
+          if (ageDays > KEY_AGE_WARN_DAYS) {
+            log?.warn?.(
+              `Session encryption key is ${ageDays} days old. Consider rotating: openclaw credentials rotate`,
+            );
+          }
+        } catch {
+          // stat failure is non-fatal
+        }
         return buf;
       }
     }
@@ -85,7 +102,11 @@ type PersistedStore = {
 };
 
 /** Write sessions to encrypted file. */
-export function persistSessions(sessions: Map<string, AuthSession>, key: Buffer, stateDir: string): void {
+export function persistSessions(
+  sessions: Map<string, AuthSession>,
+  key: Buffer,
+  stateDir: string,
+): void {
   const now = Date.now();
   // Only persist non-expired sessions
   const live = Array.from(sessions.values()).filter((s) => s.expiresAt > now);
@@ -131,7 +152,11 @@ export function loadPersistedSessions(key: Buffer, stateDir: string): Map<string
 // --- Debounced persistence ---
 
 /** Schedule a debounced persist (coalesces rapid mutations). */
-export function schedulePersist(sessions: Map<string, AuthSession>, key: Buffer, stateDir: string): void {
+export function schedulePersist(
+  sessions: Map<string, AuthSession>,
+  key: Buffer,
+  stateDir: string,
+): void {
   if (persistTimer) {
     clearTimeout(persistTimer);
   }
@@ -150,7 +175,11 @@ export function schedulePersist(sessions: Map<string, AuthSession>, key: Buffer,
 }
 
 /** Synchronous flush for shutdown — cancels pending debounce and writes immediately. */
-export function flushSessions(sessions: Map<string, AuthSession>, key: Buffer, stateDir: string): void {
+export function flushSessions(
+  sessions: Map<string, AuthSession>,
+  key: Buffer,
+  stateDir: string,
+): void {
   if (persistTimer) {
     clearTimeout(persistTimer);
     persistTimer = null;

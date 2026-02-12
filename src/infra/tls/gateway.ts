@@ -1,14 +1,11 @@
-import { execFile } from "node:child_process";
 import { X509Certificate } from "node:crypto";
 import fs from "node:fs/promises";
 import path from "node:path";
 import tls from "node:tls";
-import { promisify } from "node:util";
 import type { GatewayTlsConfig } from "../../config/types.gateway.js";
 import { CONFIG_DIR, ensureDir, resolveUserPath, shortenHomeInString } from "../../utils.js";
 import { normalizeFingerprint } from "./fingerprint.js";
-
-const execFileAsync = promisify(execFile);
+import { generateSelfSignedCertNative } from "./generate.js";
 
 export type GatewayTlsRuntime = {
   enabled: boolean;
@@ -41,24 +38,10 @@ async function generateSelfSignedCert(params: {
   if (keyDir !== certDir) {
     await ensureDir(keyDir);
   }
-  await execFileAsync("openssl", [
-    "req",
-    "-x509",
-    "-newkey",
-    "rsa:2048",
-    "-sha256",
-    "-days",
-    "3650",
-    "-nodes",
-    "-keyout",
-    params.keyPath,
-    "-out",
-    params.certPath,
-    "-subj",
-    "/CN=openclaw-gateway",
-  ]);
-  await fs.chmod(params.keyPath, 0o600).catch(() => {});
-  await fs.chmod(params.certPath, 0o600).catch(() => {});
+  // Native Node.js cert generation — no openssl CLI dependency
+  const { certPem, keyPem } = generateSelfSignedCertNative();
+  await fs.writeFile(params.certPath, certPem, { mode: 0o600 });
+  await fs.writeFile(params.keyPath, keyPem, { mode: 0o600 });
   params.log?.info?.(
     `gateway tls: generated self-signed cert at ${shortenHomeInString(params.certPath)}`,
   );

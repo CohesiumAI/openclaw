@@ -42,6 +42,7 @@ import { scheduleGatewayUpdateCheck } from "../infra/update-startup.js";
 import { startDiagnosticHeartbeat, stopDiagnosticHeartbeat } from "../logging/diagnostic.js";
 import { createSubsystemLogger, runtimeForLogger } from "../logging/subsystem.js";
 import { runOnboardingWizard } from "../wizard/onboarding.js";
+import { initAuditLog, shutdownAuditLog } from "./audit-log.js";
 import { flushSessionsToDisk, initSessionPersistence } from "./auth-sessions.js";
 import { startGatewayConfigReloader } from "./config-reload.js";
 import { ExecApprovalManager } from "./exec-approval-manager.js";
@@ -352,8 +353,20 @@ export async function startGatewayServer(
     logHooks,
     logPlugins,
   });
-  // Initialize encrypted session persistence (restore sessions from disk)
-  initSessionPersistence();
+  // Initialize audit logging (all auth modes — fail-open)
+  try {
+    initAuditLog();
+  } catch (err) {
+    log.warn(`audit log init failed: ${err} — continuing without audit logging`);
+  }
+  // Initialize encrypted session persistence — only for password+hashed mode (v1 compat: no side effects in token mode)
+  if (resolvedAuth.useHashedCredentials) {
+    try {
+      initSessionPersistence();
+    } catch (err) {
+      log.warn(`session persistence init failed: ${err} — continuing without persistence`);
+    }
+  }
 
   let bonjourStop: (() => Promise<void>) | null = null;
   const nodeRegistry = new NodeRegistry();
@@ -636,7 +649,10 @@ export async function startGatewayServer(
         skillsRefreshTimer = null;
       }
       skillsChangeUnsub();
-      flushSessionsToDisk();
+      if (resolvedAuth.useHashedCredentials) {
+        flushSessionsToDisk();
+      }
+      shutdownAuditLog();
       await close(opts);
     },
   };

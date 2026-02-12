@@ -1,51 +1,44 @@
 /**
- * HTTP auth endpoints: /auth/login, /auth/logout, /auth/me, /auth/refresh.
- * Includes rate limiting on login attempts.
+ * HTTP auth endpoints: /auth/login, /auth/logout, /auth/me, /auth/refresh,
+ * /auth/reset-password, /auth/capabilities.
+ * Includes progressive rate limiting on login and recovery attempts.
  */
 
 import type { IncomingMessage, ServerResponse } from "node:http";
-import { getGatewayUser } from "../infra/auth-credentials.js";
+import type { ResolvedGatewayAuth } from "./auth.js";
+import {
+  getGatewayUser,
+  updateGatewayUserPassword,
+  updateGatewayUserTotp,
+} from "../infra/auth-credentials.js";
+import { audit } from "./audit-log.js";
 import { clearSessionCookie, parseSessionCookie, setSessionCookie } from "./auth-cookies.js";
-import { DUMMY_PASSWORD_HASH, verifyPassword } from "./auth-password.js";
+import { DUMMY_PASSWORD_HASH, hashPassword, verifyPassword } from "./auth-password.js";
 import {
   createAuthSession,
   deleteAuthSession,
   deleteUserSessions,
   getAuthSession,
+  getPendingTotpSession,
+  promoteTotpSession,
   refreshAuthSession,
 } from "./auth-sessions.js";
+import {
+  buildTotpUri,
+  generateBackupCodes,
+  generateTotpSecret,
+  hashBackupCodes,
+  verifyBackupCode,
+  verifyTotp,
+} from "./auth-totp.js";
 import { sendJson } from "./http-common.js";
 import { resolveGatewayClientIp } from "./net.js";
+import { createProgressiveRateLimiter } from "./rate-limiter.js";
 
-// --- Rate limiting ---
+// --- Rate limiting (progressive) ---
 
-type RateBucket = { count: number; resetAt: number };
-const LOGIN_MAX_ATTEMPTS = 5;
-const LOGIN_WINDOW_MS = 15 * 60 * 1000; // 15 minutes
-const rateBuckets = new Map<string, RateBucket>();
-
-function isRateLimited(ip: string): boolean {
-  const now = Date.now();
-  const bucket = rateBuckets.get(ip);
-  if (!bucket || now > bucket.resetAt) {
-    return false;
-  }
-  return bucket.count >= LOGIN_MAX_ATTEMPTS;
-}
-
-function recordLoginAttempt(ip: string): void {
-  const now = Date.now();
-  const bucket = rateBuckets.get(ip);
-  if (!bucket || now > bucket.resetAt) {
-    rateBuckets.set(ip, { count: 1, resetAt: now + LOGIN_WINDOW_MS });
-    return;
-  }
-  bucket.count++;
-}
-
-function resetRateLimit(ip: string): void {
-  rateBuckets.delete(ip);
-}
+const loginLimiter = createProgressiveRateLimiter();
+const recoveryLimiter = createProgressiveRateLimiter();
 
 // --- Helpers ---
 
@@ -100,7 +93,7 @@ function isSecureRequest(req: IncomingMessage): boolean {
 export function handleAuthHttpRequest(
   req: IncomingMessage,
   res: ServerResponse,
-  opts: { trustedProxies?: string[] },
+  opts: { trustedProxies?: string[]; resolvedAuth?: ResolvedGatewayAuth },
 ): boolean {
   const url = req.url ?? "";
   if (!url.startsWith("/auth/")) {
@@ -128,6 +121,30 @@ export function handleAuthHttpRequest(
     handleRevokeAll(req, res);
     return true;
   }
+  if (route === "/auth/reset-password" && req.method === "POST") {
+    void handleResetPassword(req, res, opts);
+    return true;
+  }
+  if (route === "/auth/capabilities" && req.method === "GET") {
+    handleCapabilities(res, opts.resolvedAuth);
+    return true;
+  }
+  if (route === "/auth/totp/setup" && req.method === "POST") {
+    void handleTotpSetup(req, res, opts);
+    return true;
+  }
+  if (route === "/auth/totp/verify" && req.method === "POST") {
+    void handleTotpVerify(req, res, opts);
+    return true;
+  }
+  if (route === "/auth/totp/challenge" && req.method === "POST") {
+    void handleTotpChallenge(req, res, opts);
+    return true;
+  }
+  if (route === "/auth/totp/backup" && req.method === "POST") {
+    void handleTotpBackup(req, res, opts);
+    return true;
+  }
 
   // Unknown auth route
   sendJson(res, 404, { error: { message: "Not Found", type: "not_found" } });
@@ -143,11 +160,13 @@ async function handleLogin(
 ): Promise<void> {
   const ip = clientIpFromReq(req, opts.trustedProxies);
 
-  if (isRateLimited(ip)) {
+  const loginRemaining = loginLimiter.check(`ip:${ip}`);
+  if (loginRemaining > 0) {
     sendJson(res, 429, {
       error: {
         message: "Too many login attempts. Try again later.",
         type: "rate_limited",
+        retryAfterMs: loginRemaining,
       },
     });
     return;
@@ -172,12 +191,15 @@ async function handleLogin(
     return;
   }
 
-  recordLoginAttempt(ip);
+  loginLimiter.recordFailure(`ip:${ip}`);
 
   const user = getGatewayUser(username);
   // Always run scrypt to prevent user-enumeration timing oracle
   const valid = await verifyPassword(password, user?.passwordHash ?? DUMMY_PASSWORD_HASH);
   if (!user || !valid) {
+    audit("auth.login.failed", username, ip, {
+      reason: user ? "password_mismatch" : "user_not_found",
+    });
     sendJson(res, 401, {
       error: { message: "Invalid credentials", type: "unauthorized" },
     });
@@ -185,7 +207,28 @@ async function handleLogin(
   }
 
   // Successful login — reset rate limit
-  resetRateLimit(ip);
+  loginLimiter.reset(`ip:${ip}`);
+
+  // 2FA check: if user has TOTP enabled, create a partial session
+  if (user.totpEnabled && user.totpSecret) {
+    audit("auth.login.totp_required", user.username, ip);
+    const partialSession = createAuthSession({
+      username: user.username,
+      role: user.role,
+    });
+    // Mark as pending TOTP — no cookie set, no WS access
+    partialSession.pendingTotpChallenge = true;
+    // Short TTL for challenge (5 min)
+    partialSession.expiresAt = Date.now() + 5 * 60 * 1000;
+    sendJson(res, 200, {
+      ok: true,
+      totpRequired: true,
+      challengeSessionId: partialSession.id,
+    });
+    return;
+  }
+
+  audit("auth.login.success", user.username, ip);
 
   const session = createAuthSession({
     username: user.username,
@@ -209,6 +252,10 @@ async function handleLogin(
 function handleLogout(req: IncomingMessage, res: ServerResponse): void {
   const sessionId = parseSessionCookie(req);
   if (sessionId) {
+    const session = getAuthSession(sessionId);
+    if (session) {
+      audit("auth.logout", session.username, "session");
+    }
     deleteAuthSession(sessionId);
   }
   clearSessionCookie(res);
@@ -283,6 +330,7 @@ function handleRevokeAll(req: IncomingMessage, res: ServerResponse): void {
     return;
   }
   const count = deleteUserSessions(session.username);
+  audit("auth.revoke_all", session.username, "session", { revokedCount: count });
   clearSessionCookie(res);
   sendJson(res, 200, { ok: true, revokedCount: count });
 }
@@ -326,7 +374,372 @@ export function verifyCsrf(req: IncomingMessage, res: ServerResponse): boolean {
   return true;
 }
 
+// --- Reset password via recovery code (P0 — rate limited) ---
+
+async function handleResetPassword(
+  req: IncomingMessage,
+  res: ServerResponse,
+  opts: { trustedProxies?: string[]; resolvedAuth?: ResolvedGatewayAuth },
+): Promise<void> {
+  // Only available in hashed-credentials mode
+  if (!opts.resolvedAuth?.useHashedCredentials) {
+    sendJson(res, 404, { error: { message: "Not Found", type: "not_found" } });
+    return;
+  }
+
+  const ip = clientIpFromReq(req, opts.trustedProxies);
+
+  let body: unknown;
+  try {
+    const raw = await readBody(req);
+    body = JSON.parse(raw);
+  } catch {
+    sendJson(res, 400, {
+      error: { message: "Invalid JSON body", type: "invalid_request" },
+    });
+    return;
+  }
+
+  const { username, recoveryCode, newPassword } = body as {
+    username?: string;
+    recoveryCode?: string;
+    newPassword?: string;
+  };
+  if (
+    !username ||
+    typeof username !== "string" ||
+    !recoveryCode ||
+    typeof recoveryCode !== "string" ||
+    !newPassword ||
+    typeof newPassword !== "string"
+  ) {
+    sendJson(res, 400, {
+      error: {
+        message: "username, recoveryCode, and newPassword are required",
+        type: "invalid_request",
+      },
+    });
+    return;
+  }
+
+  if (newPassword.length < 8) {
+    sendJson(res, 400, {
+      error: { message: "Password must be at least 8 characters", type: "invalid_request" },
+    });
+    return;
+  }
+
+  // Progressive rate limiting: double-keyed by IP and username
+  const ipKey = `recovery:ip:${ip}`;
+  const userKey = `recovery:user:${username.toLowerCase()}`;
+  const remaining = Math.max(recoveryLimiter.check(ipKey), recoveryLimiter.check(userKey));
+  if (remaining > 0) {
+    sendJson(res, 429, {
+      error: {
+        message: "Too many recovery attempts. Try again later.",
+        type: "rate_limited",
+        retryAfterMs: remaining,
+      },
+    });
+    return;
+  }
+
+  const user = getGatewayUser(username);
+  // Always run scrypt to prevent timing oracle
+  const valid = await verifyPassword(recoveryCode, user?.recoveryCodeHash ?? DUMMY_PASSWORD_HASH);
+
+  if (!user || !valid || !user.recoveryCodeHash) {
+    recoveryLimiter.recordFailure(ipKey);
+    recoveryLimiter.recordFailure(userKey);
+    audit("auth.recovery.failed", username, ip);
+    sendJson(res, 401, {
+      error: { message: "Invalid recovery code", type: "unauthorized" },
+    });
+    return;
+  }
+
+  // Valid recovery code — update password
+  const newHash = await hashPassword(newPassword);
+  updateGatewayUserPassword(username, newHash);
+  recoveryLimiter.reset(ipKey);
+  recoveryLimiter.reset(userKey);
+  audit("auth.recovery.success", username, ip);
+
+  sendJson(res, 200, { ok: true });
+}
+
+// --- Capabilities (feature discovery for frontend) ---
+
+function handleCapabilities(res: ServerResponse, resolvedAuth?: ResolvedGatewayAuth): void {
+  const isHashed = resolvedAuth?.useHashedCredentials === true;
+  sendJson(res, 200, {
+    authMode: resolvedAuth?.mode ?? "token",
+    hasRecoveryReset: isHashed,
+    has2fa: isHashed,
+    hasUserManagement: isHashed,
+  });
+}
+
+// --- TOTP endpoints (P3a — only active in hashed-credentials mode) ---
+
+async function handleTotpSetup(
+  req: IncomingMessage,
+  res: ServerResponse,
+  opts: { trustedProxies?: string[]; resolvedAuth?: ResolvedGatewayAuth },
+): Promise<void> {
+  if (!opts.resolvedAuth?.useHashedCredentials) {
+    sendJson(res, 404, { error: { message: "Not Found", type: "not_found" } });
+    return;
+  }
+  const sessionId = parseSessionCookie(req);
+  const session = sessionId ? getAuthSession(sessionId) : null;
+  if (!session) {
+    sendJson(res, 401, { error: { message: "Not authenticated", type: "unauthorized" } });
+    return;
+  }
+
+  const secret = generateTotpSecret();
+  const uri = buildTotpUri(secret, session.username);
+  const backupCodes = generateBackupCodes(10);
+  const backupHashes = await hashBackupCodes(backupCodes);
+
+  // Store secret (not yet enabled) and backup code hashes
+  updateGatewayUserTotp(session.username, {
+    totpSecret: secret,
+    backupCodeHashes: backupHashes,
+  });
+
+  audit("auth.totp.setup_started", session.username, "session");
+
+  sendJson(res, 200, {
+    ok: true,
+    secret,
+    uri,
+    backupCodes,
+  });
+}
+
+async function handleTotpVerify(
+  req: IncomingMessage,
+  res: ServerResponse,
+  opts: { trustedProxies?: string[]; resolvedAuth?: ResolvedGatewayAuth },
+): Promise<void> {
+  if (!opts.resolvedAuth?.useHashedCredentials) {
+    sendJson(res, 404, { error: { message: "Not Found", type: "not_found" } });
+    return;
+  }
+  const sessionId = parseSessionCookie(req);
+  const session = sessionId ? getAuthSession(sessionId) : null;
+  if (!session) {
+    sendJson(res, 401, { error: { message: "Not authenticated", type: "unauthorized" } });
+    return;
+  }
+
+  let body: unknown;
+  try {
+    const raw = await readBody(req);
+    body = JSON.parse(raw);
+  } catch {
+    sendJson(res, 400, { error: { message: "Invalid JSON body", type: "invalid_request" } });
+    return;
+  }
+
+  const { code } = body as { code?: string };
+  if (!code || typeof code !== "string") {
+    sendJson(res, 400, { error: { message: "code is required", type: "invalid_request" } });
+    return;
+  }
+
+  const user = getGatewayUser(session.username);
+  if (!user?.totpSecret) {
+    sendJson(res, 400, { error: { message: "TOTP setup not started", type: "invalid_request" } });
+    return;
+  }
+
+  const matched = verifyTotp(user.totpSecret, code);
+  if (!matched) {
+    sendJson(res, 401, { error: { message: "Invalid TOTP code", type: "unauthorized" } });
+    return;
+  }
+
+  // Enable TOTP
+  updateGatewayUserTotp(session.username, {
+    totpEnabled: true,
+    lastUsedTotpCode: matched,
+  });
+
+  audit("auth.totp.enabled", session.username, "session");
+  sendJson(res, 200, { ok: true });
+}
+
+async function handleTotpChallenge(
+  req: IncomingMessage,
+  res: ServerResponse,
+  opts: { trustedProxies?: string[]; resolvedAuth?: ResolvedGatewayAuth },
+): Promise<void> {
+  if (!opts.resolvedAuth?.useHashedCredentials) {
+    sendJson(res, 404, { error: { message: "Not Found", type: "not_found" } });
+    return;
+  }
+
+  let body: unknown;
+  try {
+    const raw = await readBody(req);
+    body = JSON.parse(raw);
+  } catch {
+    sendJson(res, 400, { error: { message: "Invalid JSON body", type: "invalid_request" } });
+    return;
+  }
+
+  const { challengeSessionId, code } = body as {
+    challengeSessionId?: string;
+    code?: string;
+  };
+  if (!challengeSessionId || !code) {
+    sendJson(res, 400, {
+      error: { message: "challengeSessionId and code are required", type: "invalid_request" },
+    });
+    return;
+  }
+
+  const pendingSession = getPendingTotpSession(challengeSessionId);
+  if (!pendingSession) {
+    sendJson(res, 401, {
+      error: { message: "Challenge expired or invalid", type: "session_expired" },
+    });
+    return;
+  }
+
+  const user = getGatewayUser(pendingSession.username);
+  if (!user?.totpSecret || !user.totpEnabled) {
+    sendJson(res, 400, { error: { message: "TOTP not configured", type: "invalid_request" } });
+    return;
+  }
+
+  const matched = verifyTotp(user.totpSecret, code, user.lastUsedTotpCode);
+  if (!matched) {
+    const ip = clientIpFromReq(req, opts.trustedProxies);
+    audit("auth.totp.challenge_failed", pendingSession.username, ip);
+    sendJson(res, 401, { error: { message: "Invalid TOTP code", type: "unauthorized" } });
+    return;
+  }
+
+  // Update anti-replay
+  updateGatewayUserTotp(pendingSession.username, { lastUsedTotpCode: matched });
+
+  // Promote to full session
+  const fullSession = promoteTotpSession(challengeSessionId);
+  if (!fullSession) {
+    sendJson(res, 401, { error: { message: "Session promotion failed", type: "session_expired" } });
+    return;
+  }
+
+  const ip = clientIpFromReq(req, opts.trustedProxies);
+  audit("auth.login.success", fullSession.username, ip, { method: "totp" });
+
+  const secure = isSecureRequest(req);
+  setSessionCookie(res, fullSession.id, { secure });
+
+  sendJson(res, 200, {
+    ok: true,
+    user: {
+      username: fullSession.username,
+      role: fullSession.role,
+      scopes: fullSession.scopes,
+    },
+    csrfToken: fullSession.csrfToken,
+  });
+}
+
+async function handleTotpBackup(
+  req: IncomingMessage,
+  res: ServerResponse,
+  opts: { trustedProxies?: string[]; resolvedAuth?: ResolvedGatewayAuth },
+): Promise<void> {
+  if (!opts.resolvedAuth?.useHashedCredentials) {
+    sendJson(res, 404, { error: { message: "Not Found", type: "not_found" } });
+    return;
+  }
+
+  let body: unknown;
+  try {
+    const raw = await readBody(req);
+    body = JSON.parse(raw);
+  } catch {
+    sendJson(res, 400, { error: { message: "Invalid JSON body", type: "invalid_request" } });
+    return;
+  }
+
+  const { challengeSessionId, backupCode } = body as {
+    challengeSessionId?: string;
+    backupCode?: string;
+  };
+  if (!challengeSessionId || !backupCode) {
+    sendJson(res, 400, {
+      error: {
+        message: "challengeSessionId and backupCode are required",
+        type: "invalid_request",
+      },
+    });
+    return;
+  }
+
+  const pendingSession = getPendingTotpSession(challengeSessionId);
+  if (!pendingSession) {
+    sendJson(res, 401, {
+      error: { message: "Challenge expired or invalid", type: "session_expired" },
+    });
+    return;
+  }
+
+  const user = getGatewayUser(pendingSession.username);
+  if (!user?.backupCodeHashes?.length) {
+    sendJson(res, 400, {
+      error: { message: "No backup codes configured", type: "invalid_request" },
+    });
+    return;
+  }
+
+  const matchedIdx = await verifyBackupCode(backupCode, user.backupCodeHashes);
+  if (matchedIdx === -1) {
+    const ip = clientIpFromReq(req, opts.trustedProxies);
+    audit("auth.totp.backup_failed", pendingSession.username, ip);
+    sendJson(res, 401, { error: { message: "Invalid backup code", type: "unauthorized" } });
+    return;
+  }
+
+  // Remove used backup code
+  const remaining = [...user.backupCodeHashes];
+  remaining.splice(matchedIdx, 1);
+  updateGatewayUserTotp(pendingSession.username, { backupCodeHashes: remaining });
+
+  // Promote to full session
+  const fullSession = promoteTotpSession(challengeSessionId);
+  if (!fullSession) {
+    sendJson(res, 401, { error: { message: "Session promotion failed", type: "session_expired" } });
+    return;
+  }
+
+  const ip = clientIpFromReq(req, opts.trustedProxies);
+  audit("auth.login.success", fullSession.username, ip, { method: "backup_code" });
+
+  const secure = isSecureRequest(req);
+  setSessionCookie(res, fullSession.id, { secure });
+
+  sendJson(res, 200, {
+    ok: true,
+    user: {
+      username: fullSession.username,
+      role: fullSession.role,
+      scopes: fullSession.scopes,
+    },
+    csrfToken: fullSession.csrfToken,
+    remainingBackupCodes: remaining.length,
+  });
+}
+
 /** Reset rate limiting state (for tests). */
 export function resetRateLimitsForTest(): void {
-  rateBuckets.clear();
+  loginLimiter.resetAll();
+  recoveryLimiter.resetAll();
 }

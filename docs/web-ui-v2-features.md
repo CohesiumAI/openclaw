@@ -512,21 +512,25 @@ Sessions survive gateway restarts via an encrypted disk store:
 
 ### 22.14 Security Hardening Summary
 
-| Layer                | Protection                                                       | Details                                                                                  |
-| -------------------- | ---------------------------------------------------------------- | ---------------------------------------------------------------------------------------- |
-| **Transport**        | HSTS, Secure cookies, SameSite=Strict                            | Cookie `Secure` flag set only when HTTPS detected; HTTP allowed on loopback only         |
-| **Authentication**   | Scrypt password hashing, timing-safe comparison                  | Constant-time verify prevents user-enumeration oracle                                    |
-| **Sessions**         | 30-min sliding TTL, encrypted persistence, per-session CSRF      | AES-256-GCM at rest; CSRF token bound to each session                                    |
-| **Authorization**    | RBAC (admin/operator/read-only), scope-based WS methods          | Default-deny: empty scopes = no permissions                                              |
-| **Headers**          | CSP, X-Frame-Options, X-Content-Type-Options, Permissions-Policy | `connect-src 'self'`; `frame-ancestors 'none'`; `script-src 'self'` (no `unsafe-inline`) |
-| **WebSocket**        | Pre-auth gate, Origin validation, handshake timeout              | Non-local WS upgrades rejected without session cookie                                    |
-| **Rate limiting**    | 5 failed login attempts → 429                                    | Per-IP rate limiting with automatic reset on success                                     |
-| **Input validation** | Regex IDs, size caps, type checks                                | Projects/files/sessions all server-validated                                             |
-| **Credentials**      | AES-256-GCM encryption at rest (optional)                        | `openclaw credentials encrypt/decrypt` CLI                                               |
-| **Network**          | Startup warning on `0.0.0.0` without auth                        | `trustedProxies` strict; untrusted proxy headers logged                                  |
-| **Device identity**  | Ed25519 keys in IndexedDB                                        | Migrated from localStorage; legacy key purged                                            |
-| **Revocation**       | HTTP, WS, CLI session revocation                                 | `POST /auth/revoke-all`, WS method, `openclaw user revoke`                               |
-| **Audit**            | `openclaw security audit` CLI                                    | Scans config, permissions, plugins, network exposure                                     |
+| Layer                 | Protection                                                       | Details                                                                                  |
+| --------------------- | ---------------------------------------------------------------- | ---------------------------------------------------------------------------------------- |
+| **Transport**         | HSTS, Secure cookies, SameSite=Strict                            | Cookie `Secure` flag set only when HTTPS detected; HTTP allowed on loopback only         |
+| **Authentication**    | Scrypt password hashing, timing-safe comparison                  | Constant-time verify prevents user-enumeration oracle                                    |
+| **Sessions**          | 30-min sliding TTL, encrypted persistence, per-session CSRF      | AES-256-GCM at rest; CSRF token bound to each session                                    |
+| **Authorization**     | RBAC (admin/operator/read-only), scope-based WS methods          | Default-deny: empty scopes = no permissions                                              |
+| **Headers**           | CSP, X-Frame-Options, X-Content-Type-Options, Permissions-Policy | `connect-src 'self'`; `frame-ancestors 'none'`; `script-src 'self'` (no `unsafe-inline`) |
+| **WebSocket**         | Pre-auth gate, Origin validation, handshake timeout              | Non-local WS upgrades rejected without session cookie                                    |
+| **Rate limiting**     | Progressive cooldown (3→30s, 6→1min, 9→5min, 12+→15min)          | Double-keyed (IP + username) for login and recovery; auto-reset on success               |
+| **Input validation**  | Regex IDs, size caps, type checks                                | Projects/files/sessions all server-validated                                             |
+| **Credentials**       | AES-256-GCM encryption at rest (optional)                        | `openclaw credentials encrypt/decrypt` CLI                                               |
+| **Network**           | Startup warning on `0.0.0.0` without auth                        | `trustedProxies` strict; untrusted proxy headers logged                                  |
+| **Device identity**   | Ed25519 keys in IndexedDB                                        | Migrated from localStorage; legacy key purged                                            |
+| **Revocation**        | HTTP, WS, CLI session revocation                                 | `POST /auth/revoke-all`, WS method, `openclaw user revoke`                               |
+| **Audit**             | `openclaw security audit` CLI + structured audit log             | JSON Lines to `~/.openclaw/logs/audit.jsonl`; rotation at 50 MB; covers all auth modes   |
+| **2FA TOTP**          | RFC 6238 TOTP with backup codes                                  | Opt-in per user; partial session on login; anti-replay; 10 scrypt-hashed backup codes    |
+| **TLS**               | Native Node.js self-signed cert generation                       | RSA 2048, SAN: localhost/127.0.0.1/::1; no `openssl` CLI dependency                      |
+| **Password recovery** | `POST /auth/reset-password` with recovery code                   | Double-keyed progressive rate limiting; timing-safe scrypt verify; gated by auth mode    |
+| **Key rotation**      | Session key age warning (>365 days)                              | `generateOrLoadSessionKey()` warns on startup; suggests `openclaw credentials rotate`    |
 
 ---
 
