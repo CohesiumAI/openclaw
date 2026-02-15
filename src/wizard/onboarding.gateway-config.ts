@@ -7,7 +7,11 @@ import type {
   WizardFlow,
 } from "./onboarding.types.js";
 import type { WizardPrompter } from "./prompts.js";
-import { normalizeGatewayTokenInput, randomToken } from "../commands/onboard-helpers.js";
+import {
+  normalizeGatewayTokenInput,
+  randomToken,
+  validateGatewayPasswordInput,
+} from "../commands/onboard-helpers.js";
 import { hashPassword } from "../gateway/auth-password.js";
 import {
   buildTotpUri,
@@ -18,6 +22,7 @@ import {
 } from "../gateway/auth-totp.js";
 import { createGatewayUser } from "../infra/auth-credentials.js";
 import { findTailscaleBinary } from "../infra/tailscale.js";
+import { validateIPv4AddressInput } from "../shared/net/ipv4.js";
 
 // These commands are "high risk" (privacy writes/recording) and should be
 // explicitly armed by the user when they want to use them.
@@ -90,25 +95,7 @@ export async function configureGatewayForOnboarding(
         message: "Custom IP address",
         placeholder: "192.168.1.100",
         initialValue: customBindHost ?? "",
-        validate: (value) => {
-          if (!value) {
-            return "IP address is required for custom bind mode";
-          }
-          const trimmed = value.trim();
-          const parts = trimmed.split(".");
-          if (parts.length !== 4) {
-            return "Invalid IPv4 address (e.g., 192.168.1.100)";
-          }
-          if (
-            parts.every((part) => {
-              const n = parseInt(part, 10);
-              return !Number.isNaN(n) && n >= 0 && n <= 255 && part === String(n);
-            })
-          ) {
-            return undefined;
-          }
-          return "Invalid IPv4 address (each octet must be 0-255)";
-        },
+        validate: validateIPv4AddressInput,
       });
       customBindHost = typeof input === "string" ? input.trim() : undefined;
     }
@@ -246,11 +233,7 @@ export async function configureGatewayForOnboarding(
       });
       const pwd = await prompter.text({
         message: "Password (min 8 chars)",
-        validate: (v) => {
-          if (!v || v.trim().length < 8) {
-            return "Minimum 8 characters";
-          }
-        },
+        validate: validateGatewayPasswordInput,
       });
       const recoveryCode = await prompter.text({
         message: "Recovery code (8-16 digits, for password reset)",
@@ -347,7 +330,7 @@ export async function configureGatewayForOnboarding(
           ? quickstartGateway.password
           : await prompter.text({
               message: "Gateway password",
-              validate: (value) => (value?.trim() ? undefined : "Required"),
+              validate: validateGatewayPasswordInput,
             });
       nextConfig = {
         ...nextConfig,
@@ -356,7 +339,7 @@ export async function configureGatewayForOnboarding(
           auth: {
             ...nextConfig.gateway?.auth,
             mode: "password",
-            password: String(password).trim(),
+            password: String(password ?? "").trim(),
           },
         },
       };

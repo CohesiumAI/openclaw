@@ -1,4 +1,5 @@
 import { normalizeVerboseLevel } from "../auto-reply/thinking.js";
+import { isSilentReplyText, SILENT_REPLY_TOKEN } from "../auto-reply/tokens.js";
 import { loadConfig } from "../config/config.js";
 import { type AgentEventPayload, getAgentRunContext } from "../infra/agent-events.js";
 import { resolveHeartbeatVisibility } from "../infra/heartbeat-visibility.js";
@@ -229,6 +230,9 @@ export function createAgentEventHandler({
   toolEventRecipients,
 }: AgentEventHandlerOptions) {
   const emitChatDelta = (sessionKey: string, clientRunId: string, seq: number, rawText: string) => {
+    if (isSilentReplyText(rawText, SILENT_REPLY_TOKEN)) {
+      return;
+    }
     // Strip directive tags (e.g. [[reply_to_current]]) before sending to web UI
     const text = parseInlineDirectives(rawText, { stripReplyTags: true }).text;
     chatRunState.buffers.set(clientRunId, text);
@@ -264,6 +268,7 @@ export function createAgentEventHandler({
     error?: unknown,
   ) => {
     const text = chatRunState.buffers.get(clientRunId)?.trim() ?? "";
+    const shouldSuppressSilent = isSilentReplyText(text, SILENT_REPLY_TOKEN);
     chatRunState.buffers.delete(clientRunId);
     chatRunState.deltaSentAt.delete(clientRunId);
     if (jobState === "done") {
@@ -272,13 +277,14 @@ export function createAgentEventHandler({
         sessionKey,
         seq,
         state: "final" as const,
-        message: text
-          ? {
-              role: "assistant",
-              content: [{ type: "text", text }],
-              timestamp: Date.now(),
-            }
-          : undefined,
+        message:
+          text && !shouldSuppressSilent
+            ? {
+                role: "assistant",
+                content: [{ type: "text", text }],
+                timestamp: Date.now(),
+              }
+            : undefined,
       };
       // Suppress webchat broadcast for heartbeat runs when showOk is false
       if (!shouldSuppressHeartbeatBroadcast(clientRunId)) {
@@ -416,6 +422,8 @@ export function createAgentEventHandler({
     if (lifecyclePhase === "end" || lifecyclePhase === "error") {
       toolEventRecipients.markFinal(evt.runId);
       clearAgentRunContext(evt.runId);
+      agentRunSeq.delete(evt.runId);
+      agentRunSeq.delete(clientRunId);
     }
   };
 }

@@ -441,6 +441,27 @@ Updated feature documentation with 5 new sections (§21–25) and updates to 6 e
   - **`src/commands/doctor-security.ts`**: `noteSecurityWarnings()` now emits a `CRITICAL` warning for plain HTTP on LAN.
   - **`src/security/audit.ts`**: new finding `gateway.bind_no_tls` (severity: critical) in `collectGatewayConfigFindings()`.
 
+### Merge upstream main (1333 commits) — 2026-02-15
+
+- **Upstream sync**: merged `openclaw/openclaw:main` (1333 commits) into `feature/web-ui-v2`. Resolved 15 merge conflicts across gateway auth, server methods, onboarding wizard, and UI compose/render layers.
+- **Key upstream additions integrated**:
+  - **Rate limiting** (`auth-rate-limit.ts`): per-IP rate limiting on gateway auth (shared-secret + device-token scopes), hook auth throttling with `429 Retry-After`.
+  - **`safeEqualSecret`** (`security/secret-equal.ts`): replaces inline `timingSafeEqual` wrappers with a dedicated constant-time comparison module.
+  - **Trusted-proxy auth mode**: new `trusted-proxy` auth mode in `resolveGatewayAuth`, with Tailscale guard updated.
+  - **Silent reply filtering**: `isSilentReplyText` filter in `emitChatDelta` (combined with our directive-tag stripping).
+  - **RTL text direction**: `detectTextDirection` on chat compose textarea.
+  - **Stale-client guards**: `onClose`/`onGap` handlers in `app-gateway.ts` now check `host.client !== client` before acting.
+  - **Usage tab refactor**: usage debounce + rendering moved to `app-render-usage-tab.ts`.
+  - **`validateGatewayPasswordInput`**: shared password validation in onboarding wizard.
+  - **`stripEnvelope` shared module**: envelope stripping moved to `src/shared/chat-envelope.js`.
+  - **Hook client-key tracking**: `resolveHookClientKey` + `recordHookAuthFailure`/`clearHookAuthFailure` for hook auth rate limiting.
+- **Conflict resolution decisions**:
+  - Kept our 50 MB `MAX_PAYLOAD_BYTES` (needed for attachment support).
+  - Kept our hashed credentials + TOTP onboarding flow in wizard, merged with `validateGatewayPasswordInput`.
+  - Kept our slash-command popover + attachment compose UI, added RTL `dir` from main.
+  - Took main's device-auth implementation (our stubs would break main's evolved device pairing).
+  - Combined our HTTP session cookie auth with main's rate-limited auth flow in WS handshake.
+
 ### v1 → v2 migration safety
 
 - All new features gated by auth mode — token-mode users see zero side effects.

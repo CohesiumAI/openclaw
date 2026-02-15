@@ -1,45 +1,8 @@
+import { stripEnvelope } from "../../../../src/shared/chat-envelope.js";
 import { stripThinkingTags } from "../format.ts";
-
-const ENVELOPE_PREFIX = /^\[([^\]]+)\]\s*/;
-const ENVELOPE_CHANNELS = [
-  "WebChat",
-  "WhatsApp",
-  "Telegram",
-  "Signal",
-  "Slack",
-  "Discord",
-  "iMessage",
-  "Teams",
-  "Matrix",
-  "Zalo",
-  "Zalo Personal",
-  "BlueBubbles",
-];
 
 const textCache = new WeakMap<object, string | null>();
 const thinkingCache = new WeakMap<object, string | null>();
-
-function looksLikeEnvelopeHeader(header: string): boolean {
-  if (/\d{4}-\d{2}-\d{2}T\d{2}:\d{2}Z\b/.test(header)) {
-    return true;
-  }
-  if (/\d{4}-\d{2}-\d{2} \d{2}:\d{2}\b/.test(header)) {
-    return true;
-  }
-  return ENVELOPE_CHANNELS.some((label) => header.startsWith(`${label} `));
-}
-
-export function stripEnvelope(text: string): string {
-  const match = text.match(ENVELOPE_PREFIX);
-  if (!match) {
-    return text;
-  }
-  const header = match[1] ?? "";
-  if (!looksLikeEnvelopeHeader(header)) {
-    return text;
-  }
-  return text.slice(match[0].length);
-}
 
 /** Strip gateway-injected image placeholder tags from displayed text */
 function stripImagePlaceholders(text: string): string {
@@ -56,16 +19,8 @@ function stripDirectiveTags(text: string): string {
 /**
  * Strip gateway-injected inlined file content from user messages.
  *
- * The gateway appends file blocks at the END of the user text, separated by
- * \n\n. Formats:
- *   [File: name]\n```lang\n...content...\n```          (old, 3-backtick)
- *   [File: name]\n````lang\n...content...\n````        (new, dynamic backtick)
- *   [File attached: name (mime, size)]                  (binary placeholder)
- *   <file name="..." mime="...">...content...</file>   (media understanding)
- *
  * Robust approach: strip everything from the first file/attachment marker
- * (preceded by \n\n or at start) to the end of the text. This avoids all
- * fence-parsing edge cases with nested code blocks.
+ * to the end of the text.
  */
 function stripInlinedFileContent(text: string): string {
   let result = text;
@@ -80,8 +35,6 @@ function stripInlinedFileContent(text: string): string {
   result = result.replace(/\n{3,}/g, "\n\n").trim();
 
   // Phase 2: truncate from first file/content marker to end.
-  // User text always precedes these markers; file content follows them.
-  // This avoids fragile parsing of file content (backticks, XML, etc.).
   const marker = /\[File(?:\s+attached)?:\s*[^\]]+\]|<file\s+/.exec(result);
   if (marker) {
     result = result.slice(0, marker.index).trim();
