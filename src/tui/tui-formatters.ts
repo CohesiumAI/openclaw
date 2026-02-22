@@ -1,4 +1,5 @@
 import { formatRawAssistantErrorForUi } from "../agents/pi-embedded-helpers.js";
+import { stripLeadingInboundMetadata } from "../auto-reply/reply/strip-inbound-meta.js";
 import { stripAnsi } from "../terminal/ansi.js";
 import { formatTokenCount } from "../utils/usage-format.js";
 
@@ -7,6 +8,13 @@ const MAX_TOKEN_CHARS = 32;
 const LONG_TOKEN_RE = /\S{33,}/g;
 const LONG_TOKEN_TEST_RE = /\S{33,}/;
 const BINARY_LINE_REPLACEMENT_THRESHOLD = 12;
+const URL_PREFIX_RE = /^(https?:\/\/|file:\/\/)/i;
+const WINDOWS_DRIVE_RE = /^[a-zA-Z]:[\\/]/;
+const FILE_LIKE_RE = /^[a-zA-Z0-9._-]+$/;
+const RTL_SCRIPT_RE = /[\u0590-\u08ff\ufb1d-\ufdff\ufe70-\ufefc]/;
+const BIDI_CONTROL_RE = /[\u202a-\u202e\u2066-\u2069]/;
+const RTL_ISOLATE_START = "\u2067";
+const RTL_ISOLATE_END = "\u2069";
 
 function hasControlChars(text: string): boolean {
   for (const char of text) {
@@ -47,6 +55,35 @@ function chunkToken(token: string, maxChars: number): string[] {
   return chunks;
 }
 
+function isCopySensitiveToken(token: string): boolean {
+  if (URL_PREFIX_RE.test(token)) {
+    return true;
+  }
+  if (
+    token.startsWith("/") ||
+    token.startsWith("~/") ||
+    token.startsWith("./") ||
+    token.startsWith("../")
+  ) {
+    return true;
+  }
+  if (WINDOWS_DRIVE_RE.test(token) || token.startsWith("\\\\")) {
+    return true;
+  }
+  if (token.includes("/") || token.includes("\\")) {
+    return true;
+  }
+  return token.includes("_") && FILE_LIKE_RE.test(token);
+}
+
+function normalizeLongTokenForDisplay(token: string): string {
+  // Preserve copy-sensitive tokens exactly (paths/urls/file-like names).
+  if (isCopySensitiveToken(token)) {
+    return token;
+  }
+  return chunkToken(token, MAX_TOKEN_CHARS).join(" ");
+}
+
 function redactBinaryLikeLine(line: string): string {
   const replacementCount = (line.match(REPLACEMENT_CHAR_RE) || []).length;
   if (
@@ -56,6 +93,23 @@ function redactBinaryLikeLine(line: string): string {
     return "[binary data omitted]";
   }
   return line;
+}
+
+function isolateRtlLine(line: string): string {
+  if (!RTL_SCRIPT_RE.test(line) || BIDI_CONTROL_RE.test(line)) {
+    return line;
+  }
+  return `${RTL_ISOLATE_START}${line}${RTL_ISOLATE_END}`;
+}
+
+function applyRtlIsolation(text: string): string {
+  if (!RTL_SCRIPT_RE.test(text)) {
+    return text;
+  }
+  return text
+    .split("\n")
+    .map((line) => isolateRtlLine(line))
+    .join("\n");
 }
 
 export function sanitizeRenderableText(text: string): string {
@@ -68,7 +122,7 @@ export function sanitizeRenderableText(text: string): string {
   const hasLongTokens = LONG_TOKEN_TEST_RE.test(text);
   const hasControls = hasControlChars(text);
   if (!hasAnsi && !hasReplacementChars && !hasLongTokens && !hasControls) {
-    return text;
+    return applyRtlIsolation(text);
   }
 
   const withoutAnsi = hasAnsi ? stripAnsi(text) : text;
@@ -79,9 +133,10 @@ export function sanitizeRenderableText(text: string): string {
         .map((line) => redactBinaryLikeLine(line))
         .join("\n")
     : withoutControlChars;
-  return LONG_TOKEN_TEST_RE.test(redacted)
-    ? redacted.replace(LONG_TOKEN_RE, (token) => chunkToken(token, MAX_TOKEN_CHARS).join(" "))
+  const tokenSafe = LONG_TOKEN_TEST_RE.test(redacted)
+    ? redacted.replace(LONG_TOKEN_RE, normalizeLongTokenForDisplay)
     : redacted;
+  return applyRtlIsolation(tokenSafe);
 }
 
 export function resolveFinalAssistantText(params: {
@@ -241,6 +296,9 @@ export function extractTextFromMessage(
   const record = message as Record<string, unknown>;
   const text = extractTextBlocks(record.content, opts);
   if (text) {
+    if (record.role === "user") {
+      return stripLeadingInboundMetadata(text);
+    }
     return text;
   }
 

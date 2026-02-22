@@ -148,6 +148,7 @@ curl "https://api.telegram.org/bot<bot_token>/getUpdates"
 
     `groupAllowFrom` is used for group sender filtering. If not set, Telegram falls back to `allowFrom`.
     `groupAllowFrom` entries must be numeric Telegram user IDs.
+    Runtime note: if `channels.telegram` is completely missing, runtime falls back to `groupPolicy="allowlist"` for group policy evaluation (even if `channels.defaults.groupPolicy` is set).
 
     Example: allow any member in one specific group:
 
@@ -221,37 +222,26 @@ curl "https://api.telegram.org/bot<bot_token>/getUpdates"
 ## Feature reference
 
 <AccordionGroup>
-  <Accordion title="Draft streaming in Telegram DMs">
-    OpenClaw can stream partial replies with Telegram draft bubbles (`sendMessageDraft`).
+  <Accordion title="Live stream preview (message edits)">
+    OpenClaw can stream partial replies by sending a temporary Telegram message and editing it as text arrives.
 
-    Requirements:
+    Requirement:
 
-    - `channels.telegram.streamMode` is not `"off"` (default: `"partial"`)
-    - private chat
-    - inbound update includes `message_thread_id`
-    - bot topics are enabled (`getMe().has_topics_enabled`)
+    - `channels.telegram.streaming` is `off | partial | block | progress` (default: `off`)
+    - `progress` maps to `partial` on Telegram (compat with cross-channel naming)
+    - legacy `channels.telegram.streamMode` and boolean `streaming` values are auto-mapped
 
-    Modes:
+    This works in direct chats and groups/topics.
 
-    - `off`: no draft streaming
-    - `partial`: frequent draft updates from partial text
-    - `block`: chunked draft updates using `channels.telegram.draftChunk`
+    For text-only replies, OpenClaw keeps the same preview message and performs a final edit in place (no second message).
 
-    `draftChunk` defaults for block mode:
+    For complex replies (for example media payloads), OpenClaw falls back to normal final delivery and then cleans up the preview message.
 
-    - `minChars: 200`
-    - `maxChars: 800`
-    - `breakPreference: "paragraph"`
-
-    `maxChars` is clamped by `channels.telegram.textChunkLimit`.
-
-    Draft streaming is DM-only; groups/channels do not use draft bubbles.
-
-    If you want early real Telegram messages instead of draft updates, use block streaming (`channels.telegram.blockStreaming: true`).
+    Preview streaming is separate from block streaming. When block streaming is explicitly enabled for Telegram, OpenClaw skips the preview stream to avoid double-streaming.
 
     Telegram-only reasoning stream:
 
-    - `/reasoning stream` sends reasoning to the draft bubble while generating
+    - `/reasoning stream` sends reasoning to the live preview while generating
     - final answer is sent without reasoning text
 
   </Accordion>
@@ -570,6 +560,23 @@ curl "https://api.telegram.org/bot<bot_token>/getUpdates"
 
   </Accordion>
 
+  <Accordion title="Ack reactions">
+    `ackReaction` sends an acknowledgement emoji while OpenClaw is processing an inbound message.
+
+    Resolution order:
+
+    - `channels.telegram.accounts.<accountId>.ackReaction`
+    - `channels.telegram.ackReaction`
+    - `messages.ackReaction`
+    - agent identity emoji fallback (`agents.list[].identity.emoji`, else "👀")
+
+    Notes:
+
+    - Telegram expects unicode emoji (for example "👀").
+    - Use `""` to disable the reaction for a channel or account.
+
+  </Accordion>
+
   <Accordion title="Config writes from Telegram events and commands">
     Channel config writes are enabled by default (`configWrites !== false`).
 
@@ -664,6 +671,25 @@ openclaw message send --channel telegram --target @name --message "hi"
 
     - Node 22+ + custom fetch/proxy can trigger immediate abort behavior if AbortSignal types mismatch.
     - Some hosts resolve `api.telegram.org` to IPv6 first; broken IPv6 egress can cause intermittent Telegram API failures.
+    - If logs include `TypeError: fetch failed` or `Network request for 'getUpdates' failed!`, OpenClaw now retries these as recoverable network errors.
+    - On VPS hosts with unstable direct egress/TLS, route Telegram API calls through `channels.telegram.proxy`:
+
+```yaml
+channels:
+  telegram:
+    proxy: socks5://user:pass@proxy-host:1080
+```
+
+    - If DNS/IPv6 selection is unstable, force Node family selection behavior explicitly:
+
+```yaml
+channels:
+  telegram:
+    network:
+      autoSelectFamily: false
+```
+
+    - Environment override (temporary): set `OPENCLAW_TELEGRAM_DISABLE_AUTO_SELECT_FAMILY=1`.
     - Validate DNS answers:
 
 ```bash
@@ -703,7 +729,7 @@ Primary reference:
 - `channels.telegram.textChunkLimit`: outbound chunk size (chars).
 - `channels.telegram.chunkMode`: `length` (default) or `newline` to split on blank lines (paragraph boundaries) before length chunking.
 - `channels.telegram.linkPreview`: toggle link previews for outbound messages (default: true).
-- `channels.telegram.streamMode`: `off | partial | block` (draft streaming).
+- `channels.telegram.streaming`: `off | partial | block | progress` (live stream preview; default: `off`; `progress` maps to `partial`).
 - `channels.telegram.mediaMaxMb`: inbound/outbound media cap (MB).
 - `channels.telegram.retry`: retry policy for outbound Telegram API calls (attempts, minDelayMs, maxDelayMs, jitter).
 - `channels.telegram.network.autoSelectFamily`: override Node autoSelectFamily (true=enable, false=disable). Defaults to disabled on Node 22 to avoid Happy Eyeballs timeouts.
@@ -727,7 +753,7 @@ Telegram-specific high-signal fields:
 - access control: `dmPolicy`, `allowFrom`, `groupPolicy`, `groupAllowFrom`, `groups`, `groups.*.topics.*`
 - command/menu: `commands.native`, `customCommands`
 - threading/replies: `replyToMode`
-- streaming: `streamMode`, `draftChunk`, `blockStreaming`
+- streaming: `streaming` (preview), `blockStreaming`
 - formatting/delivery: `textChunkLimit`, `chunkMode`, `linkPreview`, `responsePrefix`
 - media/network: `mediaMaxMb`, `timeoutSeconds`, `retry`, `network.autoSelectFamily`, `proxy`
 - webhook: `webhookUrl`, `webhookSecret`, `webhookPath`, `webhookHost`
@@ -739,4 +765,5 @@ Telegram-specific high-signal fields:
 
 - [Pairing](/channels/pairing)
 - [Channel routing](/channels/channel-routing)
+- [Multi-agent routing](/concepts/multi-agent)
 - [Troubleshooting](/channels/troubleshooting)

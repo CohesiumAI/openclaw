@@ -1,11 +1,9 @@
+import {
+  GATEWAY_EVENT_UPDATE_AVAILABLE,
+  type GatewayUpdateAvailableEventPayload,
+} from "../../../src/gateway/events.js";
+import { CHAT_SESSIONS_ACTIVE_MINUTES, flushChatQueueForEvent } from "./app-chat.ts";
 import type { EventLogEntry } from "./app-events.ts";
-import type { OpenClawApp } from "./app.ts";
-import type { ExecApprovalRequest } from "./controllers/exec-approval.ts";
-import type { GatewayEventFrame, GatewayHelloOk } from "./gateway.ts";
-import type { Tab } from "./navigation.ts";
-import type { UiSettings } from "./storage.ts";
-import type { AgentsListResult, PresenceEntry, HealthSnapshot, StatusSummary } from "./types.ts";
-import { getSessionsActiveMinutes, flushChatQueueForEvent, patchSessionLabel } from "./app-chat.ts";
 import {
   applySettings,
   loadCron,
@@ -13,28 +11,33 @@ import {
   setLastActiveSessionKey,
 } from "./app-settings.ts";
 import { handleAgentEvent, resetToolStream, type AgentEventPayload } from "./app-tool-stream.ts";
-import { readAloud } from "./app-tts.ts";
-import { extractText } from "./chat/message-extract.ts";
+import type { OpenClawApp } from "./app.ts";
 import { loadAgents } from "./controllers/agents.ts";
 import { loadAssistantIdentity } from "./controllers/assistant-identity.ts";
-import { loadChatCommands } from "./controllers/chat-commands.ts";
 import { loadChatHistory } from "./controllers/chat.ts";
 import { handleChatEvent, type ChatEventPayload } from "./controllers/chat.ts";
 import { loadDevices } from "./controllers/devices.ts";
+import type { ExecApprovalRequest } from "./controllers/exec-approval.ts";
 import {
   addExecApproval,
   parseExecApprovalRequested,
   parseExecApprovalResolved,
   removeExecApproval,
 } from "./controllers/exec-approval.ts";
-import { loadModels } from "./controllers/models.ts";
+import { loadHealthState } from "./controllers/health.ts";
 import { loadNodes } from "./controllers/nodes.ts";
-import { setProjectFilesGatewayClient } from "./controllers/project-files-client.ts";
 import { loadSessions } from "./controllers/sessions.ts";
-import { loadSkills } from "./controllers/skills.ts";
+import type { GatewayEventFrame, GatewayHelloOk } from "./gateway.ts";
 import { GatewayBrowserClient } from "./gateway.ts";
-import { syncPreferencesOnConnect } from "./preferences-sync.ts";
-import { syncProjectsOnConnect } from "./projects-sync.ts";
+import type { Tab } from "./navigation.ts";
+import type { UiSettings } from "./storage.ts";
+import type {
+  AgentsListResult,
+  PresenceEntry,
+  HealthSummary,
+  StatusSummary,
+  UpdateAvailable,
+} from "./types.ts";
 
 type GatewayHost = {
   settings: UiSettings;
@@ -53,7 +56,10 @@ type GatewayHost = {
   agentsLoading: boolean;
   agentsList: AgentsListResult | null;
   agentsError: string | null;
-  debugHealth: HealthSnapshot | null;
+  healthLoading: boolean;
+  healthResult: HealthSummary | null;
+  healthError: string | null;
+  debugHealth: HealthSummary | null;
   assistantName: string;
   assistantAvatar: string | null;
   assistantAgentId: string | null;
@@ -62,6 +68,7 @@ type GatewayHost = {
   refreshSessionsAfterChat: Set<string>;
   execApprovalQueue: ExecApprovalRequest[];
   execApprovalError: string | null;
+  updateAvailable: UpdateAvailable | null;
 };
 
 type SessionDefaultsSnapshot = {
@@ -153,37 +160,21 @@ export function connectGateway(host: GatewayHost) {
       resetToolStream(host as unknown as Parameters<typeof resetToolStream>[0]);
       void loadAssistantIdentity(host as unknown as OpenClawApp);
       void loadAgents(host as unknown as OpenClawApp);
+      void loadHealthState(host as unknown as OpenClawApp);
       void loadNodes(host as unknown as OpenClawApp, { quiet: true });
       void loadDevices(host as unknown as OpenClawApp, { quiet: true });
-      void loadModels(host as unknown as OpenClawApp);
-      void loadSkills(host as unknown as OpenClawApp);
-      void loadChatCommands(host as unknown as OpenClawApp);
       void refreshActiveTab(host as unknown as Parameters<typeof refreshActiveTab>[0]);
-      // Register gateway client for server-side file storage
-      setProjectFilesGatewayClient(host.client);
-      // Sync user data from server (merge server → local on connect)
-      if (host.client) {
-        const syncClient = host.client;
-        const syncApply = (next: UiSettings) =>
-          applySettings(host as unknown as Parameters<typeof applySettings>[0], next);
-        void syncPreferencesOnConnect({
-          client: syncClient,
-          settings: host.settings,
-          applySettings: syncApply,
-        });
-        void syncProjectsOnConnect({
-          client: syncClient,
-          settings: host.settings,
-          applySettings: syncApply,
-        });
-      }
     },
     onClose: ({ code, reason }) => {
       if (host.client !== client) {
         return;
       }
-      setProjectFilesGatewayClient(null);
       host.connected = false;
+      // Code 1008 = Policy Violation (auth failure) — show the gateway's reason directly
+      if (code === 1008) {
+        host.lastError = reason || "Authentication failed. Check your gateway token.";
+        return;
+      }
       // Code 1012 = Service Restart (expected during config saves, don't show as error)
       if (code !== 1012) {
         host.lastError = `disconnected (${code}): ${reason || "no reason"}`;
@@ -199,15 +190,7 @@ export function connectGateway(host: GatewayHost) {
       if (host.client !== client) {
         return;
       }
-      // Show gap as a transient warning, not a persistent error
-      const msg = `event gap detected (expected seq ${expected}, got ${received}); refresh recommended`;
-      console.warn(`[gateway] ${msg}`);
-      host.lastError = msg;
-      setTimeout(() => {
-        if (host.lastError === msg) {
-          host.lastError = null;
-        }
-      }, 5000);
+      host.lastError = `event gap detected (expected seq ${expected}, got ${received}); refresh recommended`;
     },
   });
   host.client = client;
@@ -228,7 +211,7 @@ function handleGatewayEventUnsafe(host: GatewayHost, evt: GatewayEventFrame) {
     { ts: Date.now(), event: evt.event, payload: evt.payload },
     ...host.eventLogBuffer,
   ].slice(0, 250);
-  if (host.tab === "debug") {
+  if (host.tab === "debug" || host.tab === "overview") {
     host.eventLog = host.eventLogBuffer;
   }
 
@@ -251,103 +234,22 @@ function handleGatewayEventUnsafe(host: GatewayHost, evt: GatewayEventFrame) {
         payload.sessionKey,
       );
     }
-    const app = host as unknown as OpenClawApp;
-    const state = handleChatEvent(app, payload);
-    // Live sidebar preview: update sessionsPreview from any delta (including cross-session)
-    if (payload?.state === "delta" && payload.sessionKey && payload.message) {
-      const deltaText = extractText(payload.message);
-      if (deltaText) {
-        const previewText = deltaText.slice(0, 80);
-        const prev = app.sessionsPreview.get(payload.sessionKey);
-        if (prev !== previewText) {
-          const next = new Map(app.sessionsPreview);
-          next.set(payload.sessionKey, previewText);
-          app.sessionsPreview = next;
-        }
-      }
-    }
+    const state = handleChatEvent(host as unknown as OpenClawApp, payload);
     if (state === "final" || state === "error" || state === "aborted") {
-      // Clear active tool name on terminal states
-      app.chatActiveToolName = null;
       resetToolStream(host as unknown as Parameters<typeof resetToolStream>[0]);
       void flushChatQueueForEvent(host as unknown as Parameters<typeof flushChatQueueForEvent>[0]);
       const runId = payload?.runId;
       if (runId && host.refreshSessionsAfterChat.has(runId)) {
         host.refreshSessionsAfterChat.delete(runId);
-      }
-    }
-    // Clean up active run tracking on terminal states
-    const isTerminal =
-      payload?.state === "final" || payload?.state === "error" || payload?.state === "aborted";
-    if (isTerminal && payload?.sessionKey) {
-      const app = host as unknown as OpenClawApp;
-      if (payload.sessionKey === app.sessionKey) {
-        // Active session: clean up fully (handleChatEvent already processed it)
-        app.activeRunState.delete(payload.sessionKey);
-      } else {
-        // Cross-session: keep messages for merge on switch-back, but clear run info
-        // so we don't restore a stale streaming indicator
-        const saved = app.activeRunState.get(payload.sessionKey);
-        if (saved) {
-          saved.runId = "";
-          saved.stream = null;
-          saved.toolName = null;
+        if (state === "final") {
+          void loadSessions(host as unknown as OpenClawApp, {
+            activeMinutes: CHAT_SESSIONS_ACTIVE_MINUTES,
+          });
         }
       }
     }
-    // Cross-session final: event came from a session we're no longer viewing
-    const isCrossSession = state === null && payload?.state === "final";
-    // TTS auto-play: read aloud the final assistant response on the active session
-    if (state === "final" && host.settings.ttsAutoPlay) {
-      const messages = app.chatMessages;
-      // Find last assistant message
-      for (let i = messages.length - 1; i >= 0; i--) {
-        const msg = messages[i] as Record<string, unknown> | undefined;
-        if (msg && (msg.role === "assistant" || msg.role === "model")) {
-          const text = extractText(msg);
-          if (text) {
-            void readAloud(app, text);
-          }
-          break;
-        }
-      }
-    }
-    if (state === "aborted") {
-      // Delayed reload: give the backend time to persist the user message
-      // before syncing. Immediate reload races with the async transcript write.
-      const abortedApp = host as unknown as OpenClawApp;
-      const abortedSession = abortedApp.sessionKey;
-      setTimeout(() => {
-        // Only reload if the user is still on the same session
-        if (abortedApp.sessionKey === abortedSession) {
-          void loadChatHistory(abortedApp);
-        }
-      }, 3000);
-      void loadSessions(abortedApp, {
-        activeMinutes: getSessionsActiveMinutes(host.settings),
-      });
-    }
-    if (state === "error") {
-      // Don't reload history immediately — handleChatEvent already added an
-      // inline error message. Reloading would overwrite it before the user sees it.
-      // Error state — handleChatEvent already added inline error, skip reload
-    }
-    if (state === "final" || isCrossSession) {
-      // Always refresh session list so sidebar reflects updatedAt / new sessions
-      void loadSessions(host as unknown as OpenClawApp, {
-        activeMinutes: getSessionsActiveMinutes(host.settings),
-      });
-      if (isCrossSession && payload?.sessionKey) {
-        // Auto-title the other session without touching current chatMessages
-        void maybeAutoTitleSession(host as unknown as OpenClawApp, payload.sessionKey);
-      } else {
-        // Active session: reload history then auto-title
-        void loadChatHistory(host as unknown as OpenClawApp).then(() =>
-          maybeAutoTitleSession(host as unknown as OpenClawApp),
-        );
-      }
-      // Refresh skills so the popover reflects any install/remove during chat
-      void loadSkills(host as unknown as OpenClawApp);
+    if (state === "final") {
+      void loadChatHistory(host as unknown as OpenClawApp);
     }
     return;
   }
@@ -388,104 +290,22 @@ function handleGatewayEventUnsafe(host: GatewayHost, evt: GatewayEventFrame) {
     if (resolved) {
       host.execApprovalQueue = removeExecApproval(host.execApprovalQueue, resolved.id);
     }
-  }
-}
-
-/** Derive a short title (≤50 chars, word-boundary trimmed) from text — fallback when LLM is unavailable */
-export function deriveTitle(text: string): string {
-  const clean = text.replace(/\s+/g, " ").trim();
-  if (clean.length <= 50) return clean;
-  const cut = clean.slice(0, 50);
-  const last = cut.lastIndexOf(" ");
-  return (last > 20 ? cut.slice(0, last) : cut) + "…";
-}
-
-const NEW_CONVERSATION_LABEL = "New conversation";
-const NEW_CHAT_LABEL = "New chat";
-
-/** /new system prompt prefix — skip these when looking for the first real user message */
-const NEW_SESSION_PREFIX = "A new session was started via /new";
-
-type ChatContentPart = { type?: string; text?: string };
-type ChatMessage = { role?: string; content?: ChatContentPart[] };
-
-/**
- * After a chat exchange completes, auto-title sessions that have no label
- * or still carry the default "New conversation" label.
- * - No real user message yet → set "New conversation"
- * - Real user message exists → derive short title from it
- */
-async function maybeAutoTitleSession(app: OpenClawApp, targetSessionKey?: string) {
-  if (!app.client || !app.connected) return;
-
-  const sessionKey = targetSessionKey ?? app.sessionKey;
-  const session = app.sessionsResult?.sessions?.find((s) => s.key === sessionKey);
-  const currentLabel = session?.label ?? "";
-  const currentDisplayName = session?.displayName ?? "";
-  // Quick check: "New chat", "New chat N", "New conversation", or empty
-  const isStockPlaceholder = (v: string) =>
-    !v || v === NEW_CONVERSATION_LABEL || v === NEW_CHAT_LABEL || /^New chat \d+$/.test(v);
-  // Skip sessions that clearly aren't web-created (e.g. "main")
-  if (!sessionKey.includes(":web-") && currentLabel) return;
-
-  // For cross-session titling, fetch history from gateway instead of using app.chatMessages
-  let msgs: ChatMessage[];
-  if (targetSessionKey && targetSessionKey !== app.sessionKey) {
-    try {
-      const res = await app.client.request<{ messages?: unknown[] }>("chat.history", {
-        sessionKey: targetSessionKey,
-        limit: 200,
-      });
-      msgs = (Array.isArray(res.messages) ? res.messages : []) as ChatMessage[];
-    } catch {
-      return; // Can't load history — skip auto-titling
-    }
-  } else {
-    msgs = (app.chatMessages ?? []) as ChatMessage[];
-  }
-
-  // Find first user message that isn't the /new system prompt
-  const firstUserMsg = msgs.find((m) => {
-    if (m.role !== "user") return false;
-    const text = m.content?.find((p) => p.type === "text")?.text ?? "";
-    return !text.startsWith(NEW_SESSION_PREFIX);
-  });
-
-  // Already has a non-placeholder title (e.g. immediate rename via patchSessionLabel) → skip
-  if (currentLabel && !isStockPlaceholder(currentLabel)) {
-    return;
-  }
-  if (currentDisplayName && !isStockPlaceholder(currentDisplayName)) {
     return;
   }
 
-  let newLabel: string;
-  if (!firstUserMsg) {
-    if (isStockPlaceholder(currentLabel) && currentLabel) {
-      return;
-    }
-    newLabel = NEW_CONVERSATION_LABEL;
-  } else {
-    const text = firstUserMsg.content?.find((p) => p.type === "text")?.text ?? "";
-    if (!text.trim()) {
-      return;
-    }
-    newLabel = deriveTitle(text);
-    if (newLabel === currentLabel) {
-      return;
-    }
+  if (evt.event === GATEWAY_EVENT_UPDATE_AVAILABLE) {
+    const payload = evt.payload as GatewayUpdateAvailableEventPayload | undefined;
+    host.updateAvailable = payload?.updateAvailable ?? null;
   }
-
-  // Delegate to patchSessionLabel which handles dedup + pendingLabels + loadSessions
-  await patchSessionLabel(app, sessionKey, newLabel);
 }
 
 export function applySnapshot(host: GatewayHost, hello: GatewayHelloOk) {
   const snapshot = hello.snapshot as
     | {
         presence?: PresenceEntry[];
-        health?: HealthSnapshot;
+        health?: HealthSummary;
         sessionDefaults?: SessionDefaultsSnapshot;
+        updateAvailable?: UpdateAvailable;
       }
     | undefined;
   if (snapshot?.presence && Array.isArray(snapshot.presence)) {
@@ -493,8 +313,10 @@ export function applySnapshot(host: GatewayHost, hello: GatewayHelloOk) {
   }
   if (snapshot?.health) {
     host.debugHealth = snapshot.health;
+    host.healthResult = snapshot.health;
   }
   if (snapshot?.sessionDefaults) {
     applySessionDefaults(host, snapshot.sessionDefaults);
   }
+  host.updateAvailable = snapshot?.updateAvailable ?? null;
 }

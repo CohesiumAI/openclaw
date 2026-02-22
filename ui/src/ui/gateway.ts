@@ -5,7 +5,7 @@ import {
   type GatewayClientMode,
   type GatewayClientName,
 } from "../../../src/gateway/protocol/client-info.js";
-// device-auth.ts is now a no-op — auth tokens handled by HttpOnly session cookies
+import { clearDeviceAuthToken, loadDeviceAuthToken, storeDeviceAuthToken } from "./device-auth.ts";
 import { loadOrCreateDeviceIdentity, signDevicePayload } from "./device-identity.ts";
 import { generateUUID } from "./uuid.ts";
 
@@ -61,6 +61,13 @@ export type GatewayBrowserClientOptions = {
 
 // 4008 = application-defined code (browser rejects 1008 "Policy Violation")
 const CONNECT_FAILED_CLOSE_CODE = 4008;
+const DEFAULT_OPERATOR_CONNECT_SCOPES = [
+  "operator.admin",
+  "operator.read",
+  "operator.write",
+  "operator.approvals",
+  "operator.pairing",
+];
 
 export class GatewayBrowserClient {
   private ws: WebSocket | null = null;
@@ -98,13 +105,17 @@ export class GatewayBrowserClient {
     this.ws.addEventListener("open", () => this.queueConnect());
     this.ws.addEventListener("message", (ev) => this.handleMessage(String(ev.data ?? "")));
     this.ws.addEventListener("close", (ev) => {
-      const reason =
-        ev.code === 1009
-          ? "Message too large — try a smaller file attachment"
-          : String(ev.reason ?? "");
+      const reason = String(ev.reason ?? "");
       this.ws = null;
       this.flushPending(new Error(`gateway closed (${ev.code}): ${reason}`));
       this.opts.onClose?.({ code: ev.code, reason });
+      // 1008 = Policy Violation (gateway auth rejection).
+      // Don't auto-reconnect on auth failures — surface the login gate
+      // so the user can fix their token/password instead of looping.
+      if (ev.code === 1008) {
+        this.closed = true;
+        return;
+      }
       this.scheduleReconnect();
     });
     this.ws.addEventListener("error", () => {
@@ -132,6 +143,11 @@ export class GatewayBrowserClient {
     if (this.connectSent) {
       return;
     }
+    const nonce = this.connectNonce?.trim() ?? "";
+    if (!nonce) {
+      this.ws?.close(CONNECT_FAILED_CLOSE_CODE, "connect challenge missing nonce");
+      return;
+    }
     this.connectSent = true;
     if (this.connectTimer !== null) {
       window.clearTimeout(this.connectTimer);
@@ -139,19 +155,22 @@ export class GatewayBrowserClient {
     }
 
     // crypto.subtle is only available in secure contexts (HTTPS, localhost).
-    // Over plain HTTP, we skip device identity and fall back to password-only auth.
+    // Over plain HTTP, we skip device identity and fall back to token-only auth.
     // Gateways may reject this unless gateway.controlUi.allowInsecureAuth is enabled.
     const isSecureContext = typeof crypto !== "undefined" && !!crypto.subtle;
 
-    const scopes = ["operator.admin", "operator.approvals", "operator.pairing"];
+    const scopes = DEFAULT_OPERATOR_CONNECT_SCOPES;
     const role = "operator";
     let deviceIdentity: Awaited<ReturnType<typeof loadOrCreateDeviceIdentity>> | null = null;
-    // Auth tokens are no longer stored client-side — session cookies handle auth.
-    // opts.token is kept for backward compat (e.g. token-mode gateways) but never persisted.
-    const authToken = this.opts.token;
+    let authToken = this.opts.token;
 
     if (isSecureContext) {
       deviceIdentity = await loadOrCreateDeviceIdentity();
+      const storedToken = loadDeviceAuthToken({
+        deviceId: deviceIdentity.deviceId,
+        role,
+      })?.token;
+      authToken = storedToken ?? this.opts.token;
     }
     const auth =
       authToken || this.opts.password
@@ -167,13 +186,12 @@ export class GatewayBrowserClient {
           publicKey: string;
           signature: string;
           signedAt: number;
-          nonce: string | undefined;
+          nonce: string;
         }
       | undefined;
 
     if (isSecureContext && deviceIdentity) {
       const signedAtMs = Date.now();
-      const nonce = this.connectNonce ?? undefined;
       const payload = buildDeviceAuthPayload({
         deviceId: deviceIdentity.deviceId,
         clientId: this.opts.clientName ?? GATEWAY_CLIENT_NAMES.CONTROL_UI,
@@ -206,7 +224,7 @@ export class GatewayBrowserClient {
       role,
       scopes,
       device,
-      caps: ["tool-events"],
+      caps: [],
       auth,
       userAgent: navigator.userAgent,
       locale: navigator.language,
@@ -214,11 +232,25 @@ export class GatewayBrowserClient {
 
     void this.request<GatewayHelloOk>("connect", params)
       .then((hello) => {
-        // Device auth tokens are no longer stored — auth uses HttpOnly session cookies
+        if (hello?.auth?.deviceToken && deviceIdentity) {
+          storeDeviceAuthToken({
+            deviceId: deviceIdentity.deviceId,
+            role: hello.auth.role ?? role,
+            token: hello.auth.deviceToken,
+            scopes: hello.auth.scopes ?? [],
+          });
+        }
         this.backoffMs = 800;
         this.opts.onHello?.(hello);
       })
       .catch(() => {
+        // Clear stale device token on any connect failure so the next attempt
+        // falls back to the shared gateway token (if present) or retries without
+        // a cached device token. Without this, a rotated/revoked device token
+        // causes an infinite mismatch loop when no shared token is configured.
+        if (deviceIdentity) {
+          clearDeviceAuthToken({ deviceId: deviceIdentity.deviceId, role });
+        }
         this.ws?.close(CONNECT_FAILED_CLOSE_CODE, "connect failed");
       });
   }
@@ -237,10 +269,12 @@ export class GatewayBrowserClient {
       if (evt.event === "connect.challenge") {
         const payload = evt.payload as { nonce?: unknown } | undefined;
         const nonce = payload && typeof payload.nonce === "string" ? payload.nonce : null;
-        if (nonce) {
-          this.connectNonce = nonce;
-          void this.sendConnect();
+        if (!nonce || nonce.trim().length === 0) {
+          this.ws?.close(CONNECT_FAILED_CLOSE_CODE, "connect challenge missing nonce");
+          return;
         }
+        this.connectNonce = nonce.trim();
+        void this.sendConnect();
         return;
       }
       const seq = typeof evt.seq === "number" ? evt.seq : null;
@@ -294,7 +328,10 @@ export class GatewayBrowserClient {
       window.clearTimeout(this.connectTimer);
     }
     this.connectTimer = window.setTimeout(() => {
-      void this.sendConnect();
-    }, 750);
+      if (this.connectSent || this.ws?.readyState !== WebSocket.OPEN) {
+        return;
+      }
+      this.ws?.close(CONNECT_FAILED_CLOSE_CODE, "connect challenge timeout");
+    }, 2_000);
   }
 }

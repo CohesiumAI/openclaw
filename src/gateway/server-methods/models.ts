@@ -1,5 +1,5 @@
-import type { GatewayRequestHandlers } from "./types.js";
-import { buildAllowedModelSet, resolveDefaultModelForAgent } from "../../agents/model-selection.js";
+import { DEFAULT_PROVIDER } from "../../agents/defaults.js";
+import { buildAllowedModelSet } from "../../agents/model-selection.js";
 import { loadConfig } from "../../config/config.js";
 import {
   ErrorCodes,
@@ -7,6 +7,7 @@ import {
   formatValidationErrors,
   validateModelsListParams,
 } from "../protocol/index.js";
+import type { GatewayRequestHandlers } from "./types.js";
 
 export const modelsHandlers: GatewayRequestHandlers = {
   "models.list": async ({ params, respond, context }) => {
@@ -24,14 +25,13 @@ export const modelsHandlers: GatewayRequestHandlers = {
     try {
       const catalog = await context.loadGatewayModelCatalog();
       const cfg = loadConfig();
-      const resolved = resolveDefaultModelForAgent({ cfg });
-      const { allowAny, allowedCatalog } = buildAllowedModelSet({
+      const { allowedCatalog } = buildAllowedModelSet({
         cfg,
         catalog,
-        defaultProvider: resolved.provider,
-        defaultModel: resolved.model,
+        defaultProvider: DEFAULT_PROVIDER,
       });
-      respond(true, { models: allowAny ? catalog : allowedCatalog }, undefined);
+      const models = allowedCatalog.length > 0 ? allowedCatalog : catalog;
+      respond(true, { models }, undefined);
     } catch (err) {
       respond(false, undefined, errorShape(ErrorCodes.UNAVAILABLE, String(err)));
     }

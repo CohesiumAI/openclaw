@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { Tab } from "./navigation.ts";
 import { setTabFromRoute } from "./app-settings.ts";
+import type { Tab } from "./navigation.ts";
 
 type SettingsHost = Parameters<typeof setTabFromRoute>[0] & {
   logsPollInterval: number | null;
@@ -13,7 +13,7 @@ const createHost = (tab: Tab): SettingsHost => ({
     token: "",
     sessionKey: "main",
     lastActiveSessionKey: "main",
-    theme: "system",
+    theme: "dark",
     chatFocusMode: false,
     chatShowThinking: true,
     chatStreamResponses: true,
@@ -29,7 +29,7 @@ const createHost = (tab: Tab): SettingsHost => ({
     archivedSessionKeys: [],
     projects: [],
   },
-  theme: "system",
+  theme: "dark",
   themeResolved: "dark",
   applySessionKey: "main",
   sessionKey: "main",
@@ -40,8 +40,6 @@ const createHost = (tab: Tab): SettingsHost => ({
   eventLog: [],
   eventLogBuffer: [],
   basePath: "",
-  themeMedia: null,
-  themeMediaHandler: null,
   logsPollInterval: null,
   debugPollInterval: null,
 });

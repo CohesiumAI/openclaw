@@ -1,23 +1,33 @@
 import { describe, expect, it, vi } from "vitest";
 import { onSpy } from "./bot.media.e2e-harness.js";
 
+async function createMessageHandlerAndReplySpy() {
+  const { createTelegramBot } = await import("./bot.js");
+  const replyModule = await import("../auto-reply/reply.js");
+  const replySpy = (replyModule as unknown as { __replySpy: ReturnType<typeof vi.fn> }).__replySpy;
+
+  onSpy.mockClear();
+  replySpy.mockClear();
+
+  createTelegramBot({ token: "tok" });
+  const handler = onSpy.mock.calls.find((call) => call[0] === "message")?.[1] as (
+    ctx: Record<string, unknown>,
+  ) => Promise<void>;
+  expect(handler).toBeDefined();
+  return { handler, replySpy };
+}
+
+function expectSingleReplyPayload(replySpy: ReturnType<typeof vi.fn>) {
+  expect(replySpy).toHaveBeenCalledTimes(1);
+  return replySpy.mock.calls[0][0] as Record<string, unknown>;
+}
+
 describe("telegram inbound media", () => {
   const _INBOUND_MEDIA_TEST_TIMEOUT_MS = process.platform === "win32" ? 30_000 : 20_000;
   it(
     "includes location text and ctx fields for pins",
     async () => {
-      const { createTelegramBot } = await import("./bot.js");
-      const replyModule = await import("../auto-reply/reply.js");
-      const replySpy = replyModule.__replySpy as unknown as ReturnType<typeof vi.fn>;
-
-      onSpy.mockReset();
-      replySpy.mockReset();
-
-      createTelegramBot({ token: "tok" });
-      const handler = onSpy.mock.calls.find((call) => call[0] === "message")?.[1] as (
-        ctx: Record<string, unknown>,
-      ) => Promise<void>;
-      expect(handler).toBeDefined();
+      const { handler, replySpy } = await createMessageHandlerAndReplySpy();
 
       await handler({
         message: {
@@ -35,8 +45,7 @@ describe("telegram inbound media", () => {
         getFile: async () => ({ file_path: "unused" }),
       });
 
-      expect(replySpy).toHaveBeenCalledTimes(1);
-      const payload = replySpy.mock.calls[0][0];
+      const payload = expectSingleReplyPayload(replySpy);
       expect(payload.Body).toContain("Meet here");
       expect(payload.Body).toContain("48.858844");
       expect(payload.LocationLat).toBe(48.858844);
@@ -50,18 +59,7 @@ describe("telegram inbound media", () => {
   it(
     "captures venue fields for named places",
     async () => {
-      const { createTelegramBot } = await import("./bot.js");
-      const replyModule = await import("../auto-reply/reply.js");
-      const replySpy = replyModule.__replySpy as unknown as ReturnType<typeof vi.fn>;
-
-      onSpy.mockReset();
-      replySpy.mockReset();
-
-      createTelegramBot({ token: "tok" });
-      const handler = onSpy.mock.calls.find((call) => call[0] === "message")?.[1] as (
-        ctx: Record<string, unknown>,
-      ) => Promise<void>;
-      expect(handler).toBeDefined();
+      const { handler, replySpy } = await createMessageHandlerAndReplySpy();
 
       await handler({
         message: {
@@ -78,8 +76,7 @@ describe("telegram inbound media", () => {
         getFile: async () => ({ file_path: "unused" }),
       });
 
-      expect(replySpy).toHaveBeenCalledTimes(1);
-      const payload = replySpy.mock.calls[0][0];
+      const payload = expectSingleReplyPayload(replySpy);
       expect(payload.Body).toContain("Eiffel Tower");
       expect(payload.LocationName).toBe("Eiffel Tower");
       expect(payload.LocationAddress).toBe("Champ de Mars, Paris");

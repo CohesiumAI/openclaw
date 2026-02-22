@@ -1,29 +1,29 @@
 import type { EventLogEntry } from "./app-events.ts";
-import type { CompactionStatus } from "./app-tool-stream.ts";
-import type { SlashCommandEntry } from "./controllers/chat-commands.ts";
+import type { CompactionStatus, FallbackStatus } from "./app-tool-stream.ts";
 import type { DevicePairingList } from "./controllers/devices.ts";
 import type { ExecApprovalRequest } from "./controllers/exec-approval.ts";
 import type { ExecApprovalsFile, ExecApprovalsSnapshot } from "./controllers/exec-approvals.ts";
-import type { PrefillState } from "./controllers/settings-prefill.ts";
 import type { SkillMessage } from "./controllers/skills.ts";
 import type { GatewayBrowserClient, GatewayHelloOk } from "./gateway.ts";
 import type { Tab } from "./navigation.ts";
 import type { UiSettings } from "./storage.ts";
 import type { ThemeTransitionContext } from "./theme-transition.ts";
-import type { ThemeMode } from "./theme.ts";
+import type { ResolvedTheme, ThemeMode } from "./theme.ts";
 import type {
   AgentsListResult,
   AgentsFilesListResult,
   AgentIdentityResult,
+  AttentionItem,
   ChannelsStatusSnapshot,
   ConfigSnapshot,
   ConfigUiHints,
   CronJob,
   CronRunLogEntry,
   CronStatus,
-  HealthSnapshot,
+  HealthSummary,
   LogEntry,
   LogLevel,
+  ModelCatalogEntry,
   NostrProfile,
   PresenceEntry,
   SessionsUsageResult,
@@ -37,15 +37,6 @@ import type { ChatAttachment, ChatQueueItem, CronFormState } from "./ui-types.ts
 import type { NostrProfileFormState } from "./views/channels.nostr-profile-form.ts";
 import type { SessionLogEntry } from "./views/usage.ts";
 
-export type AuthStatus =
-  | "loading"
-  | "authenticated"
-  | "unauthenticated"
-  | "no-auth"
-  | "totp-challenge"
-  | "needs-setup"
-  | "setup-totp-prompt";
-
 export type AppViewState = {
   settings: UiSettings;
   password: string;
@@ -53,51 +44,9 @@ export type AppViewState = {
   onboarding: boolean;
   basePath: string;
   connected: boolean;
-  /** Auth gate status — controls whether login screen or main UI is shown. */
-  authStatus: AuthStatus;
-  authUser: { username: string; role: string } | null;
-  loginUsername: string;
-  loginPassword: string;
-  loginError: string | null;
-  loginLoading: boolean;
-  totpChallengeSessionId: string | null;
-  totpCode: string;
-  totpError: string | null;
-  totpLoading: boolean;
-  totpBackupMode: boolean;
-  handleLogin: () => Promise<void>;
-  handleLogout: () => Promise<void>;
-  handleTotpSubmit: () => Promise<void>;
-  handleTotpBack: () => void;
-  /** First-time setup wizard state */
-  setupUsername: string;
-  setupPassword: string;
-  setupPasswordConfirm: string;
-  setupRecoveryCode: string;
-  setupError: string | null;
-  setupLoading: boolean;
-  handleSetup: () => Promise<void>;
-  /** Post-setup 2FA onboarding state */
-  setupTotpStep: "prompt" | "qr" | "verify" | "backup-codes";
-  setupTotpUri: string;
-  setupTotpSecret: string;
-  setupTotpCode: string;
-  setupTotpError: string | null;
-  setupTotpLoading: boolean;
-  setupTotpBackupCodes: string[];
-  handleSetupTotpInit: () => Promise<void>;
-  handleSetupTotpVerify: () => Promise<void>;
-  handleSetupTotpSkip: () => void;
-  /** Password change (settings) state */
-  pwChangeCurrentPassword: string;
-  pwChangeNewPassword: string;
-  pwChangeNewPasswordConfirm: string;
-  pwChangeError: string | null;
-  pwChangeSuccess: boolean;
-  pwChangeLoading: boolean;
-  handlePasswordChange: () => Promise<void>;
   theme: ThemeMode;
-  themeResolved: "light" | "dark";
+  themeResolved: ResolvedTheme;
+  themeOrder: ThemeMode[];
   hello: GatewayHelloOk | null;
   lastError: string | null;
   eventLog: EventLogEntry[];
@@ -115,11 +64,9 @@ export type AppViewState = {
   chatStreamStartedAt: number | null;
   chatRunId: string | null;
   compactionStatus: CompactionStatus | null;
+  fallbackStatus: FallbackStatus | null;
   chatAvatarUrl: string | null;
   chatThinkingLevel: string | null;
-  chatActiveToolName: string | null;
-  voiceListening: boolean;
-  ttsPlaying: boolean;
   chatQueue: ChatQueueItem[];
   chatManualRefreshInFlight: boolean;
   nodesLoading: boolean;
@@ -129,41 +76,6 @@ export type AppViewState = {
   sidebarContent: string | null;
   sidebarError: string | null;
   splitRatio: number;
-  sessionsPreview: Map<string, string>;
-  pendingLabels: Map<string, string>;
-  editingMessageIndex: number | null;
-  editingMessageText: string;
-  editingAttachments: ChatAttachment[];
-  modelsLoading: boolean;
-  modelsCatalog: Array<{ id: string; name?: string; provider?: string }>;
-  modelSelectorOpen: boolean;
-  skillsPopoverOpen: boolean;
-  chatsPopoverOpen: boolean;
-  chatCommands: SlashCommandEntry[];
-  slashPopoverOpen: boolean;
-  slashPopoverIndex: number;
-  handleModelChange: (modelId: string) => void;
-  settingsModalOpen: boolean;
-  settingsPrefill: PrefillState;
-  /** Active category in unified settings panel (e.g. "quick", "gw-agents") */
-  settingsActiveCategory: string;
-  /** Search query within unified settings panel */
-  settingsSearchQuery: string;
-  archiveModalOpen: boolean;
-  activeProjectId: string | null; // null=none, "__list__"=projects list, "proj-xxx"=detail
-  projectModalOpen: boolean;
-  projectModalEditId: string | null; // null=create, string=edit
-  searchModalOpen: boolean;
-  searchQuery: string;
-  contextMenuOpen: boolean;
-  contextMenuTarget: string | null;
-  contextMenuX: number;
-  contextMenuY: number;
-  confirmModalOpen: boolean;
-  confirmModalTitle: string;
-  confirmModalDesc: string;
-  confirmModalOkLabel: string;
-  confirmModalAction: (() => void) | null;
   scrollToBottom: (opts?: { smooth?: boolean }) => void;
   devicesLoading: boolean;
   devicesError: string | null;
@@ -234,6 +146,7 @@ export type AppViewState = {
   agentSkillsError: string | null;
   agentSkillsReport: SkillStatusReport | null;
   agentSkillsAgentId: string | null;
+  agentsSidebarFilter: string;
   sessionsLoading: boolean;
   sessionsResult: SessionsListResult | null;
   sessionsError: string | null;
@@ -256,6 +169,8 @@ export type AppViewState = {
   usageTimeSeriesBreakdownMode: "total" | "by-type";
   usageTimeSeries: SessionUsageTimeSeries | null;
   usageTimeSeriesLoading: boolean;
+  usageTimeSeriesCursorStart: number | null;
+  usageTimeSeriesCursorEnd: number | null;
   usageSessionLogs: SessionLogEntry[] | null;
   usageSessionLogsLoading: boolean;
   usageSessionLogsExpanded: boolean;
@@ -289,12 +204,13 @@ export type AppViewState = {
   skillEdits: Record<string, string>;
   skillMessages: Record<string, SkillMessage>;
   skillsBusyKey: string | null;
-  // Per-session skill overrides: sessionKey → Set of enabled skill names
-  sessionSkillOverrides: Map<string, Set<string>>;
+  healthLoading: boolean;
+  healthResult: HealthSummary | null;
+  healthError: string | null;
   debugLoading: boolean;
   debugStatus: StatusSummary | null;
-  debugHealth: HealthSnapshot | null;
-  debugModels: unknown[];
+  debugHealth: HealthSummary | null;
+  debugModels: ModelCatalogEntry[];
   debugHeartbeat: unknown;
   debugCallMethod: string;
   debugCallParams: string;
@@ -313,6 +229,13 @@ export type AppViewState = {
   logsLimit: number;
   logsMaxBytes: number;
   logsAtBottom: boolean;
+  updateAvailable: import("./types.js").UpdateAvailable | null;
+  // Overview dashboard state
+  attentionItems: AttentionItem[];
+  paletteOpen: boolean;
+  streamMode: boolean;
+  overviewLogLines: string[];
+  overviewLogCursor: number;
   client: GatewayBrowserClient | null;
   refreshSessionsAfterChat: Set<string>;
   connect: () => void;
@@ -365,11 +288,7 @@ export type AppViewState = {
   setPassword: (next: string) => void;
   setSessionKey: (next: string) => void;
   setChatMessage: (next: string) => void;
-  handleNewSession: () => Promise<void>;
-  handleSendChat: (
-    messageOverride?: string,
-    opts?: { restoreDraft?: boolean; attachments?: import("./ui-types.ts").ChatAttachment[] },
-  ) => Promise<void>;
+  handleSendChat: (messageOverride?: string, opts?: { restoreDraft?: boolean }) => Promise<void>;
   handleAbortChat: () => Promise<void>;
   removeQueuedMessage: (id: string) => void;
   handleChatScroll: (event: Event) => void;

@@ -9,4 +9,6 @@ export type GatewayWsClient = {
   clientIp?: string;
   /** Authenticated username from HTTP session (password auth). */
   authUser?: string;
+  canvasCapability?: string;
+  canvasCapabilityExpiresAtMs?: number;
 };

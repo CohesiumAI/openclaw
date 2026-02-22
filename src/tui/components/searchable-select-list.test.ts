@@ -13,6 +13,17 @@ const mockTheme: SearchableSelectListTheme = {
   matchHighlight: (t) => `*${t}*`,
 };
 
+const ansiHighlightTheme: SearchableSelectListTheme = {
+  selectedPrefix: (t) => t,
+  selectedText: (t) => t,
+  description: (t) => t,
+  scrollInfo: (t) => t,
+  noMatch: (t) => t,
+  searchPrompt: (t) => t,
+  searchInput: (t) => t,
+  matchHighlight: (t) => `\u001b[31m${t}\u001b[0m`,
+};
+
 const testItems = [
   {
     value: "anthropic/claude-3-opus",
@@ -30,6 +41,22 @@ const testItems = [
 ];
 
 describe("SearchableSelectList", () => {
+  function expectDescriptionVisibilityAtWidth(width: number, shouldContainDescription: boolean) {
+    const items = [
+      { value: "one", label: "one", description: "desc" },
+      { value: "two", label: "two", description: "desc" },
+    ];
+    const list = new SearchableSelectList(items, 5, mockTheme);
+    // Ensure first row is non-selected so description styling path is exercised.
+    list.setSelectedIndex(1);
+    const output = list.render(width).join("\n");
+    if (shouldContainDescription) {
+      expect(output).toContain("(desc)");
+    } else {
+      expect(output).not.toContain("(desc)");
+    }
+  }
+
   it("renders all items when no filter is applied", () => {
     const list = new SearchableSelectList(testItems, 5, mockTheme);
     const output = list.render(80);
@@ -50,46 +77,20 @@ describe("SearchableSelectList", () => {
   });
 
   it("does not show description layout at width 40 (boundary)", () => {
-    const items = [
-      { value: "one", label: "one", description: "desc" },
-      { value: "two", label: "two", description: "desc" },
-    ];
-    const list = new SearchableSelectList(items, 5, mockTheme);
-    list.setSelectedIndex(1); // ensure first row is not selected so description styling is applied
-
-    const output = list.render(40).join("\n");
-    expect(output).not.toContain("(desc)");
+    expectDescriptionVisibilityAtWidth(40, false);
   });
 
   it("shows description layout at width 41 (boundary)", () => {
-    const items = [
-      { value: "one", label: "one", description: "desc" },
-      { value: "two", label: "two", description: "desc" },
-    ];
-    const list = new SearchableSelectList(items, 5, mockTheme);
-    list.setSelectedIndex(1); // ensure first row is not selected so description styling is applied
-
-    const output = list.render(41).join("\n");
-    expect(output).toContain("(desc)");
+    expectDescriptionVisibilityAtWidth(41, true);
   });
 
   it("keeps ANSI-highlighted description rows within terminal width", () => {
-    const ansiTheme: SearchableSelectListTheme = {
-      selectedPrefix: (t) => t,
-      selectedText: (t) => t,
-      description: (t) => t,
-      scrollInfo: (t) => t,
-      noMatch: (t) => t,
-      searchPrompt: (t) => t,
-      searchInput: (t) => t,
-      matchHighlight: (t) => `\u001b[31m${t}\u001b[0m`,
-    };
     const label = `provider/${"x".repeat(80)}`;
     const items = [
       { value: label, label, description: "Some description text that should not overflow" },
       { value: "other", label: "other", description: "Other description" },
     ];
-    const list = new SearchableSelectList(items, 5, ansiTheme);
+    const list = new SearchableSelectList(items, 5, ansiHighlightTheme);
     list.setSelectedIndex(1); // make first row non-selected so description styling is applied
 
     for (const ch of "provider") {
@@ -119,18 +120,8 @@ describe("SearchableSelectList", () => {
   });
 
   it("does not corrupt ANSI sequences when highlighting multiple tokens", () => {
-    const ansiTheme: SearchableSelectListTheme = {
-      selectedPrefix: (t) => t,
-      selectedText: (t) => t,
-      description: (t) => t,
-      scrollInfo: (t) => t,
-      noMatch: (t) => t,
-      searchPrompt: (t) => t,
-      searchInput: (t) => t,
-      matchHighlight: (t) => `\u001b[31m${t}\u001b[0m`,
-    };
     const items = [{ value: "gpt-model", label: "gpt-model" }];
-    const list = new SearchableSelectList(items, 5, ansiTheme);
+    const list = new SearchableSelectList(items, 5, ansiHighlightTheme);
 
     for (const ch of "gpt m") {
       list.handleInput(ch);

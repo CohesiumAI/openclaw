@@ -13,19 +13,20 @@ const setRegistry = (registry: ReturnType<typeof createTestRegistry>) => {
 const callGatewayMock = vi.fn();
 vi.mock("../../gateway/call.js", () => ({
   callGateway: (...args: unknown[]) => callGatewayMock(...args),
+  callGatewayLeastPrivilege: (...args: unknown[]) => callGatewayMock(...args),
   randomIdempotencyKey: () => "idem-1",
 }));
 
+beforeEach(() => {
+  callGatewayMock.mockClear();
+  setRegistry(emptyRegistry);
+});
+
+afterEach(() => {
+  setRegistry(emptyRegistry);
+});
+
 describe("sendMessage channel normalization", () => {
-  beforeEach(() => {
-    callGatewayMock.mockReset();
-    setRegistry(emptyRegistry);
-  });
-
-  afterEach(() => {
-    setRegistry(emptyRegistry);
-  });
-
   it("normalizes Teams alias", async () => {
     const sendMSTeams = vi.fn(async () => ({
       messageId: "m1",
@@ -80,16 +81,7 @@ describe("sendMessage channel normalization", () => {
 });
 
 describe("sendMessage replyToId threading", () => {
-  beforeEach(() => {
-    callGatewayMock.mockReset();
-    setRegistry(emptyRegistry);
-  });
-
-  afterEach(() => {
-    setRegistry(emptyRegistry);
-  });
-
-  it("passes replyToId through to the outbound adapter", async () => {
+  const setupMattermostCapture = () => {
     const capturedCtx: Record<string, unknown>[] = [];
     const plugin = createMattermostLikePlugin({
       onSendText: (ctx) => {
@@ -97,6 +89,11 @@ describe("sendMessage replyToId threading", () => {
       },
     });
     setRegistry(createTestRegistry([{ pluginId: "mattermost", source: "test", plugin }]));
+    return capturedCtx;
+  };
+
+  it("passes replyToId through to the outbound adapter", async () => {
+    const capturedCtx = setupMattermostCapture();
 
     await sendMessage({
       cfg: {},
@@ -111,13 +108,7 @@ describe("sendMessage replyToId threading", () => {
   });
 
   it("passes threadId through to the outbound adapter", async () => {
-    const capturedCtx: Record<string, unknown>[] = [];
-    const plugin = createMattermostLikePlugin({
-      onSendText: (ctx) => {
-        capturedCtx.push(ctx);
-      },
-    });
-    setRegistry(createTestRegistry([{ pluginId: "mattermost", source: "test", plugin }]));
+    const capturedCtx = setupMattermostCapture();
 
     await sendMessage({
       cfg: {},
@@ -133,15 +124,6 @@ describe("sendMessage replyToId threading", () => {
 });
 
 describe("sendPoll channel normalization", () => {
-  beforeEach(() => {
-    callGatewayMock.mockReset();
-    setRegistry(emptyRegistry);
-  });
-
-  afterEach(() => {
-    setRegistry(emptyRegistry);
-  });
-
   it("normalizes Teams alias for polls", async () => {
     callGatewayMock.mockResolvedValueOnce({ messageId: "p1" });
     setRegistry(
@@ -174,15 +156,6 @@ describe("sendPoll channel normalization", () => {
 });
 
 describe("gateway url override hardening", () => {
-  beforeEach(() => {
-    callGatewayMock.mockReset();
-    setRegistry(emptyRegistry);
-  });
-
-  afterEach(() => {
-    setRegistry(emptyRegistry);
-  });
-
   it("drops gateway url overrides in backend mode (SSRF hardening)", async () => {
     setRegistry(
       createTestRegistry([

@@ -4,9 +4,9 @@ import path from "node:path";
 import { describe, expect, it } from "vitest";
 import "./test-helpers/fast-coding-tools.js";
 import type { OpenClawConfig } from "../config/config.js";
+import { createOpenClawCodingTools } from "./pi-tools.js";
 import type { SandboxDockerConfig } from "./sandbox.js";
 import type { SandboxFsBridge } from "./sandbox/fs-bridge.js";
-import { createOpenClawCodingTools } from "./pi-tools.js";
 
 type ToolWithExecute = {
   execute: (toolCallId: string, args: unknown, signal?: AbortSignal) => Promise<unknown>;
@@ -26,6 +26,64 @@ describe("Agent-specific tool filtering", () => {
     rename: async () => {},
     stat: async () => null,
   };
+
+  async function withApplyPatchEscapeCase(
+    opts: { workspaceOnly?: boolean },
+    run: (params: {
+      applyPatchTool: ToolWithExecute;
+      escapedPath: string;
+      patch: string;
+    }) => Promise<void>,
+  ) {
+    const workspaceDir = await fs.mkdtemp(path.join(os.tmpdir(), "openclaw-pi-tools-"));
+    const escapedPath = path.join(
+      path.dirname(workspaceDir),
+      `escaped-${process.pid}-${Date.now()}-${Math.random().toString(16).slice(2)}.txt`,
+    );
+    const relativeEscape = path.relative(workspaceDir, escapedPath);
+
+    try {
+      const cfg: OpenClawConfig = {
+        tools: {
+          allow: ["read", "exec"],
+          exec: {
+            applyPatch: {
+              enabled: true,
+              ...(opts.workspaceOnly === false ? { workspaceOnly: false } : {}),
+            },
+          },
+        },
+      };
+
+      const tools = createOpenClawCodingTools({
+        config: cfg,
+        sessionKey: "agent:main:main",
+        workspaceDir,
+        agentDir: "/tmp/agent",
+        modelProvider: "openai",
+        modelId: "gpt-5.2",
+      });
+
+      const applyPatchTool = tools.find((t) => t.name === "apply_patch");
+      if (!applyPatchTool) {
+        throw new Error("apply_patch tool missing");
+      }
+
+      const patch = `*** Begin Patch
+*** Add File: ${relativeEscape}
++escaped
+*** End Patch`;
+
+      await run({
+        applyPatchTool: applyPatchTool as unknown as ToolWithExecute,
+        escapedPath,
+        patch,
+      });
+    } finally {
+      await fs.rm(escapedPath, { force: true });
+      await fs.rm(workspaceDir, { recursive: true, force: true });
+    }
+  }
 
   it("should apply global tool policy when no agent-specific policy exists", () => {
     const cfg: OpenClawConfig = {
@@ -118,96 +176,23 @@ describe("Agent-specific tool filtering", () => {
   });
 
   it("defaults apply_patch to workspace-only (blocks traversal)", async () => {
-    const workspaceDir = await fs.mkdtemp(path.join(os.tmpdir(), "openclaw-pi-tools-"));
-    const escapedPath = path.join(
-      path.dirname(workspaceDir),
-      `escaped-${process.pid}-${Date.now()}-${Math.random().toString(16).slice(2)}.txt`,
-    );
-    const relativeEscape = path.relative(workspaceDir, escapedPath);
-
-    try {
-      const cfg: OpenClawConfig = {
-        tools: {
-          allow: ["read", "exec"],
-          exec: {
-            applyPatch: { enabled: true },
-          },
-        },
-      };
-
-      const tools = createOpenClawCodingTools({
-        config: cfg,
-        sessionKey: "agent:main:main",
-        workspaceDir,
-        agentDir: "/tmp/agent",
-        modelProvider: "openai",
-        modelId: "gpt-5.2",
-      });
-
-      const applyPatchTool = tools.find((t) => t.name === "apply_patch");
-      if (!applyPatchTool) {
-        throw new Error("apply_patch tool missing");
-      }
-
-      const patch = `*** Begin Patch
-*** Add File: ${relativeEscape}
-+escaped
-*** End Patch`;
-
-      await expect(
-        (applyPatchTool as unknown as ToolWithExecute).execute("tc1", { input: patch }),
-      ).rejects.toThrow(/Path escapes sandbox root/);
+    await withApplyPatchEscapeCase({}, async ({ applyPatchTool, escapedPath, patch }) => {
+      await expect(applyPatchTool.execute("tc1", { input: patch })).rejects.toThrow(
+        /Path escapes sandbox root/,
+      );
       await expect(fs.readFile(escapedPath, "utf8")).rejects.toBeDefined();
-    } finally {
-      await fs.rm(escapedPath, { force: true });
-      await fs.rm(workspaceDir, { recursive: true, force: true });
-    }
+    });
   });
 
   it("allows disabling apply_patch workspace-only via config (dangerous)", async () => {
-    const workspaceDir = await fs.mkdtemp(path.join(os.tmpdir(), "openclaw-pi-tools-"));
-    const escapedPath = path.join(
-      path.dirname(workspaceDir),
-      `escaped-allow-${process.pid}-${Date.now()}-${Math.random().toString(16).slice(2)}.txt`,
+    await withApplyPatchEscapeCase(
+      { workspaceOnly: false },
+      async ({ applyPatchTool, escapedPath, patch }) => {
+        await applyPatchTool.execute("tc2", { input: patch });
+        const contents = await fs.readFile(escapedPath, "utf8");
+        expect(contents).toBe("escaped\n");
+      },
     );
-    const relativeEscape = path.relative(workspaceDir, escapedPath);
-
-    try {
-      const cfg: OpenClawConfig = {
-        tools: {
-          allow: ["read", "exec"],
-          exec: {
-            applyPatch: { enabled: true, workspaceOnly: false },
-          },
-        },
-      };
-
-      const tools = createOpenClawCodingTools({
-        config: cfg,
-        sessionKey: "agent:main:main",
-        workspaceDir,
-        agentDir: "/tmp/agent",
-        modelProvider: "openai",
-        modelId: "gpt-5.2",
-      });
-
-      const applyPatchTool = tools.find((t) => t.name === "apply_patch");
-      if (!applyPatchTool) {
-        throw new Error("apply_patch tool missing");
-      }
-
-      const patch = `*** Begin Patch
-*** Add File: ${relativeEscape}
-+escaped
-*** End Patch`;
-
-      await (applyPatchTool as unknown as ToolWithExecute).execute("tc2", { input: patch });
-      const contents = await fs.readFile(escapedPath, "utf8");
-      expect(contents).toBe("escaped\n");
-    } finally {
-      await fs.rm(escapedPath, { force: true });
-      await fs.rm(workspaceDir, { recursive: true, force: true });
-    }
   });
 
   it("should apply agent-specific tool policy", () => {
@@ -616,6 +601,10 @@ describe("Agent-specific tool filtering", () => {
     const cfg: OpenClawConfig = {
       tools: {
         deny: ["process"],
+        exec: {
+          security: "full",
+          ask: "off",
+        },
       },
     };
 
@@ -633,7 +622,25 @@ describe("Agent-specific tool filtering", () => {
       yieldMs: 10,
     });
 
-    expect(result?.details.status).toBe("completed");
+    const resultDetails = result?.details as { status?: string } | undefined;
+    expect(resultDetails?.status).toBe("completed");
+  });
+
+  it("fails closed when exec host=sandbox is requested without sandbox runtime", async () => {
+    const tools = createOpenClawCodingTools({
+      config: {},
+      sessionKey: "agent:main:main",
+      workspaceDir: "/tmp/test-main-fail-closed",
+      agentDir: "/tmp/agent-main-fail-closed",
+    });
+    const execTool = tools.find((tool) => tool.name === "exec");
+    expect(execTool).toBeDefined();
+    await expect(
+      execTool!.execute("call-fail-closed", {
+        command: "echo done",
+        host: "sandbox",
+      }),
+    ).rejects.toThrow("exec host not allowed");
   });
 
   it("should apply agent-specific exec host defaults over global defaults", async () => {
@@ -641,6 +648,8 @@ describe("Agent-specific tool filtering", () => {
       tools: {
         exec: {
           host: "sandbox",
+          security: "full",
+          ask: "off",
         },
       },
       agents: {
@@ -668,6 +677,12 @@ describe("Agent-specific tool filtering", () => {
     });
     const mainExecTool = mainTools.find((tool) => tool.name === "exec");
     expect(mainExecTool).toBeDefined();
+    const mainResult = await mainExecTool!.execute("call-main-default", {
+      command: "echo done",
+      yieldMs: 1000,
+    });
+    const mainDetails = mainResult?.details as { status?: string } | undefined;
+    expect(mainDetails?.status).toBe("completed");
     await expect(
       mainExecTool!.execute("call-main", {
         command: "echo done",
@@ -683,11 +698,18 @@ describe("Agent-specific tool filtering", () => {
     });
     const helperExecTool = helperTools.find((tool) => tool.name === "exec");
     expect(helperExecTool).toBeDefined();
-    const helperResult = await helperExecTool!.execute("call-helper", {
-      command: "echo done",
-      host: "sandbox",
-      yieldMs: 1000,
-    });
-    expect(helperResult?.details.status).toBe("completed");
+    await expect(
+      helperExecTool!.execute("call-helper-default", {
+        command: "echo done",
+        yieldMs: 1000,
+      }),
+    ).rejects.toThrow("exec host=sandbox is configured");
+    await expect(
+      helperExecTool!.execute("call-helper", {
+        command: "echo done",
+        host: "sandbox",
+        yieldMs: 1000,
+      }),
+    ).rejects.toThrow("exec host=sandbox is configured");
   });
 });

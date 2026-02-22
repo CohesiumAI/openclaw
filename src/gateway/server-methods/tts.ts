@@ -1,5 +1,3 @@
-import path from "node:path";
-import type { GatewayRequestHandlers } from "./types.js";
 import { loadConfig } from "../../config/config.js";
 import {
   OPENAI_TTS_MODELS,
@@ -18,6 +16,7 @@ import {
 } from "../../tts/tts.js";
 import { ErrorCodes, errorShape } from "../protocol/index.js";
 import { formatForLog } from "../ws-log.js";
+import type { GatewayRequestHandlers } from "./types.js";
 
 export const ttsHandlers: GatewayRequestHandlers = {
   "tts.status": async ({ respond }) => {
@@ -80,13 +79,10 @@ export const ttsHandlers: GatewayRequestHandlers = {
     try {
       const cfg = loadConfig();
       const channel = typeof params.channel === "string" ? params.channel.trim() : undefined;
-      const lang = typeof params.lang === "string" ? params.lang.trim() : undefined;
-      const result = await textToSpeech({ text, cfg, channel, lang });
+      const result = await textToSpeech({ text, cfg, channel });
       if (result.success && result.audioPath) {
-        const filename = path.basename(result.audioPath);
         respond(true, {
           audioPath: result.audioPath,
-          audioUrl: `/__openclaw__/tts/${encodeURIComponent(filename)}`,
           provider: result.provider,
           outputFormat: result.outputFormat,
           voiceCompatible: result.voiceCompatible,

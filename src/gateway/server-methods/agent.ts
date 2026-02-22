@@ -1,5 +1,4 @@
 import { randomUUID } from "node:crypto";
-import type { GatewayRequestHandlerOptions, GatewayRequestHandlers } from "./types.js";
 import { listAgentIds } from "../../agents/agent-scope.js";
 import { BARE_SESSION_RESET_PROMPT } from "../../auto-reply/reply/session-reset-prompt.js";
 import { agentCommand } from "../../commands/agent.js";
@@ -16,7 +15,8 @@ import {
   resolveAgentDeliveryPlan,
   resolveAgentOutboundTarget,
 } from "../../infra/outbound/agent-delivery.js";
-import { normalizeAgentId } from "../../routing/session-key.js";
+import { resolveMessageChannelSelection } from "../../infra/outbound/channel-selection.js";
+import { classifySessionKeyShape, normalizeAgentId } from "../../routing/session-key.js";
 import { defaultRuntime } from "../../runtime.js";
 import { normalizeInputProvenance, type InputProvenance } from "../../sessions/input-provenance.js";
 import { resolveSendPolicy } from "../../sessions/send-policy.js";
@@ -48,7 +48,9 @@ import {
 import { formatForLog } from "../ws-log.js";
 import { waitForAgentJob } from "./agent-job.js";
 import { injectTimestamp, timestampOptsFromConfig } from "./agent-timestamp.js";
+import { normalizeRpcAttachmentsToChatAttachments } from "./attachment-normalize.js";
 import { sessionsHandlers } from "./sessions.js";
+import type { GatewayRequestHandlerOptions, GatewayRequestHandlers } from "./types.js";
 
 const RESET_COMMAND_RE = /^\/(new|reset)(?:\s+([\s\S]*))?$/i;
 
@@ -213,26 +215,9 @@ export const agentHandlers: GatewayRequestHandlers = {
       });
       return;
     }
-    const normalizedAttachments =
-      request.attachments
-        ?.map((a) => ({
-          type: typeof a?.type === "string" ? a.type : undefined,
-          mimeType: typeof a?.mimeType === "string" ? a.mimeType : undefined,
-          fileName: typeof a?.fileName === "string" ? a.fileName : undefined,
-          content:
-            typeof a?.content === "string"
-              ? a.content
-              : ArrayBuffer.isView(a?.content)
-                ? Buffer.from(
-                    a.content.buffer,
-                    a.content.byteOffset,
-                    a.content.byteLength,
-                  ).toString("base64")
-                : undefined,
-        }))
-        .filter((a) => a.content) ?? [];
+    const normalizedAttachments = normalizeRpcAttachmentsToChatAttachments(request.attachments);
 
-    let message = request.message.trim();
+    let message = (request.message ?? "").trim();
     let images: Array<{ type: "image"; data: string; mimeType: string }> = [];
     if (normalizedAttachments.length > 0) {
       try {
@@ -289,6 +274,20 @@ export const agentHandlers: GatewayRequestHandlers = {
       typeof request.sessionKey === "string" && request.sessionKey.trim()
         ? request.sessionKey.trim()
         : undefined;
+    if (
+      requestedSessionKeyRaw &&
+      classifySessionKeyShape(requestedSessionKeyRaw) === "malformed_agent"
+    ) {
+      respond(
+        false,
+        undefined,
+        errorShape(
+          ErrorCodes.INVALID_REQUEST,
+          `invalid agent params: malformed session key "${requestedSessionKeyRaw}"`,
+        ),
+      );
+      return;
+    }
     let requestedSessionKey =
       requestedSessionKeyRaw ??
       resolveExplicitAgentSessionKey({
@@ -492,22 +491,53 @@ export const agentHandlers: GatewayRequestHandlers = {
       wantsDelivery,
     });
 
-    const resolvedChannel = deliveryPlan.resolvedChannel;
-    const deliveryTargetMode = deliveryPlan.deliveryTargetMode;
-    const resolvedAccountId = deliveryPlan.resolvedAccountId;
+    let resolvedChannel = deliveryPlan.resolvedChannel;
+    let deliveryTargetMode = deliveryPlan.deliveryTargetMode;
+    let resolvedAccountId = deliveryPlan.resolvedAccountId;
     let resolvedTo = deliveryPlan.resolvedTo;
+    let effectivePlan = deliveryPlan;
+
+    if (wantsDelivery && resolvedChannel === INTERNAL_MESSAGE_CHANNEL) {
+      const cfgResolved = cfgForAgent ?? cfg;
+      try {
+        const selection = await resolveMessageChannelSelection({ cfg: cfgResolved });
+        resolvedChannel = selection.channel;
+        deliveryTargetMode = deliveryTargetMode ?? "implicit";
+        effectivePlan = {
+          ...deliveryPlan,
+          resolvedChannel,
+          deliveryTargetMode,
+          resolvedAccountId,
+        };
+      } catch (err) {
+        respond(false, undefined, errorShape(ErrorCodes.INVALID_REQUEST, String(err)));
+        return;
+      }
+    }
 
     if (!resolvedTo && isDeliverableMessageChannel(resolvedChannel)) {
       const cfgResolved = cfgForAgent ?? cfg;
       const fallback = resolveAgentOutboundTarget({
         cfg: cfgResolved,
-        plan: deliveryPlan,
-        targetMode: "implicit",
+        plan: effectivePlan,
+        targetMode: deliveryTargetMode ?? "implicit",
         validateExplicitTarget: false,
       });
       if (fallback.resolvedTarget?.ok) {
         resolvedTo = fallback.resolvedTo;
       }
+    }
+
+    if (wantsDelivery && resolvedChannel === INTERNAL_MESSAGE_CHANNEL) {
+      respond(
+        false,
+        undefined,
+        errorShape(
+          ErrorCodes.INVALID_REQUEST,
+          "delivery channel is required: pass --channel/--reply-channel or use a main session with a previous channel",
+        ),
+      );
+      return;
     }
 
     const deliver = request.deliver === true && resolvedChannel !== INTERNAL_MESSAGE_CHANNEL;
@@ -617,6 +647,17 @@ export const agentHandlers: GatewayRequestHandlers = {
     const sessionKeyRaw = typeof p.sessionKey === "string" ? p.sessionKey.trim() : "";
     let agentId = agentIdRaw ? normalizeAgentId(agentIdRaw) : undefined;
     if (sessionKeyRaw) {
+      if (classifySessionKeyShape(sessionKeyRaw) === "malformed_agent") {
+        respond(
+          false,
+          undefined,
+          errorShape(
+            ErrorCodes.INVALID_REQUEST,
+            `invalid agent.identity.get params: malformed session key "${sessionKeyRaw}"`,
+          ),
+        );
+        return;
+      }
       const resolved = resolveAgentIdFromSessionKey(sessionKeyRaw);
       if (agentId && resolved !== agentId) {
         respond(
@@ -654,7 +695,7 @@ export const agentHandlers: GatewayRequestHandlers = {
       return;
     }
     const p = params;
-    const runId = p.runId.trim();
+    const runId = (p.runId ?? "").trim();
     const timeoutMs =
       typeof p.timeoutMs === "number" && Number.isFinite(p.timeoutMs)
         ? Math.max(0, Math.floor(p.timeoutMs))

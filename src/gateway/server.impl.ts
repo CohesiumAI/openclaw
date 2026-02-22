@@ -1,18 +1,14 @@
 import path from "node:path";
-import type { CanvasHostServer } from "../canvas-host/server.js";
-import type { PluginRegistry } from "../plugins/registry.js";
-import type { PluginServicesHandle } from "../plugins/services.js";
-import type { RuntimeEnv } from "../runtime.js";
-import type { ControlUiRootState } from "./control-ui.js";
-import type { startBrowserControlServerIfEnabled } from "./server-browser.js";
 import { resolveAgentWorkspaceDir, resolveDefaultAgentId } from "../agents/agent-scope.js";
 import { getActiveEmbeddedRunCount } from "../agents/pi-embedded-runner/runs.js";
 import { registerSkillsChangeListener } from "../agents/skills/refresh.js";
 import { initSubagentRegistry } from "../agents/subagent-registry.js";
 import { getTotalPendingReplies } from "../auto-reply/reply/dispatcher-registry.js";
+import type { CanvasHostServer } from "../canvas-host/server.js";
 import { type ChannelId, listChannelPlugins } from "../channels/plugins/index.js";
 import { formatCliCommand } from "../cli/command-format.js";
 import { createDefaultDeps } from "../cli/deps.js";
+import { isRestartEnabled } from "../config/commands.js";
 import {
   CONFIG_PATH,
   isNixMode,
@@ -45,14 +41,22 @@ import { scheduleGatewayUpdateCheck } from "../infra/update-startup.js";
 import { startDiagnosticHeartbeat, stopDiagnosticHeartbeat } from "../logging/diagnostic.js";
 import { createSubsystemLogger, runtimeForLogger } from "../logging/subsystem.js";
 import { getGlobalHookRunner, runGlobalGatewayStopSafely } from "../plugins/hook-runner-global.js";
+import { createEmptyPluginRegistry } from "../plugins/registry.js";
+import type { PluginServicesHandle } from "../plugins/services.js";
 import { getTotalQueueSize } from "../process/command-queue.js";
+import type { RuntimeEnv } from "../runtime.js";
 import { runOnboardingWizard } from "../wizard/onboarding.js";
-import { initAuditLog, shutdownAuditLog } from "./audit-log.js";
 import { createAuthRateLimiter, type AuthRateLimiter } from "./auth-rate-limit.js";
-import { flushSessionsToDisk, initSessionPersistence } from "./auth-sessions.js";
+import { startChannelHealthMonitor } from "./channel-health-monitor.js";
 import { startGatewayConfigReloader } from "./config-reload.js";
+import type { ControlUiRootState } from "./control-ui.js";
+import {
+  GATEWAY_EVENT_UPDATE_AVAILABLE,
+  type GatewayUpdateAvailableEventPayload,
+} from "./events.js";
 import { ExecApprovalManager } from "./exec-approval-manager.js";
 import { NodeRegistry } from "./node-registry.js";
+import type { startBrowserControlServerIfEnabled } from "./server-browser.js";
 import { createChannelManager } from "./server-channels.js";
 import { createAgentEventHandler } from "./server-chat.js";
 import { createGatewayCloseHandler } from "./server-close.js";
@@ -85,6 +89,7 @@ import {
   refreshGatewayHealthSnapshot,
 } from "./server/health-state.js";
 import { loadGatewayTlsRuntime } from "./server/tls.js";
+import { ensureGatewayStartupAuth } from "./startup-auth.js";
 
 export { __resetModelCatalogCacheForTest } from "./server-model-catalog.js";
 
@@ -228,12 +233,31 @@ export async function startGatewayServer(
     }
   }
 
-  const cfgAtStart = loadConfig();
+  let cfgAtStart = loadConfig();
+  const authBootstrap = await ensureGatewayStartupAuth({
+    cfg: cfgAtStart,
+    env: process.env,
+    authOverride: opts.auth,
+    tailscaleOverride: opts.tailscale,
+    persist: true,
+  });
+  cfgAtStart = authBootstrap.cfg;
+  if (authBootstrap.generatedToken) {
+    if (authBootstrap.persistedGeneratedToken) {
+      log.info(
+        "Gateway auth token was missing. Generated a new token and saved it to config (gateway.auth.token).",
+      );
+    } else {
+      log.warn(
+        "Gateway auth token was missing. Generated a runtime token for this startup without changing config; restart will generate a different token. Persist one with `openclaw config set gateway.auth.mode token` and `openclaw config set gateway.auth.token <token>`.",
+      );
+    }
+  }
   const diagnosticsEnabled = isDiagnosticsEnabled(cfgAtStart);
   if (diagnosticsEnabled) {
     startDiagnosticHeartbeat();
   }
-  setGatewaySigusr1RestartPolicy({ allowExternal: cfgAtStart.commands?.restart === true });
+  setGatewaySigusr1RestartPolicy({ allowExternal: isRestartEnabled(cfgAtStart) });
   setPreRestartDeferralCheck(
     () => getTotalQueueSize() + getTotalPendingReplies() + getActiveEmbeddedRunCount(),
   );
@@ -241,21 +265,7 @@ export async function startGatewayServer(
   const defaultAgentId = resolveDefaultAgentId(cfgAtStart);
   const defaultWorkspaceDir = resolveAgentWorkspaceDir(cfgAtStart, defaultAgentId);
   const baseMethods = listGatewayMethods();
-  const emptyPluginRegistry: PluginRegistry = {
-    plugins: [],
-    tools: [],
-    hooks: [],
-    typedHooks: [],
-    channels: [],
-    providers: [],
-    gatewayHandlers: {},
-    httpHandlers: [],
-    httpRoutes: [],
-    cliRegistrars: [],
-    services: [],
-    commands: [],
-    diagnostics: [],
-  };
+  const emptyPluginRegistry = createEmptyPluginRegistry();
   const { pluginRegistry, gatewayMethods: baseGatewayMethods } = minimalTestGateway
     ? { pluginRegistry: emptyPluginRegistry, gatewayMethods: baseMethods }
     : loadGatewayPlugins({
@@ -365,7 +375,6 @@ export async function startGatewayServer(
     removeChatRun,
     chatAbortControllers,
     toolEventRecipients,
-    httpRedirectServer,
   } = await createGatewayRuntimeState({
     cfg: cfgAtStart,
     bindHost,
@@ -379,7 +388,6 @@ export async function startGatewayServer(
     resolvedAuth,
     rateLimiter: authRateLimiter,
     gatewayTls,
-    httpRedirectPort: cfgAtStart.gateway?.tls?.httpRedirectPort,
     hooksConfig: () => hooksConfig,
     pluginRegistry,
     deps,
@@ -391,21 +399,6 @@ export async function startGatewayServer(
     logHooks,
     logPlugins,
   });
-  // Initialize audit logging (all auth modes — fail-open)
-  try {
-    initAuditLog();
-  } catch (err) {
-    log.warn(`audit log init failed: ${err} — continuing without audit logging`);
-  }
-  // Initialize encrypted session persistence — only for password+hashed mode (v1 compat: no side effects in token mode)
-  if (resolvedAuth.useHashedCredentials) {
-    try {
-      initSessionPersistence();
-    } catch (err) {
-      log.warn(`session persistence init failed: ${err} — continuing without persistence`);
-    }
-  }
-
   let bonjourStop: (() => Promise<void>) | null = null;
   const nodeRegistry = new NodeRegistry();
   const nodePresenceTimers = new Map<string, ReturnType<typeof setInterval>>();
@@ -535,6 +528,15 @@ export async function startGatewayServer(
       }
     : startHeartbeatRunner({ cfg: cfgAtStart });
 
+  const healthCheckMinutes = cfgAtStart.gateway?.channelHealthCheckMinutes;
+  const healthCheckDisabled = healthCheckMinutes === 0;
+  const channelHealthMonitor = healthCheckDisabled
+    ? null
+    : startChannelHealthMonitor({
+        channelManager,
+        checkIntervalMs: (healthCheckMinutes ?? 5) * 60_000,
+      });
+
   if (!minimalTestGateway) {
     void cron.start().catch((err) => logCron.error(`failed to start: ${String(err)}`));
   }
@@ -631,7 +633,15 @@ export async function startGatewayServer(
     isNixMode,
   });
   if (!minimalTestGateway) {
-    scheduleGatewayUpdateCheck({ cfg: cfgAtStart, log, isNixMode });
+    scheduleGatewayUpdateCheck({
+      cfg: cfgAtStart,
+      log,
+      isNixMode,
+      onUpdateAvailableChange: (updateAvailable) => {
+        const payload: GatewayUpdateAvailableEventPayload = { updateAvailable };
+        broadcast(GATEWAY_EVENT_UPDATE_AVAILABLE, payload, { dropIfSlow: true });
+      },
+    });
   }
   const tailscaleCleanup = minimalTestGateway
     ? null
@@ -752,14 +762,8 @@ export async function startGatewayServer(
         skillsRefreshTimer = null;
       }
       skillsChangeUnsub();
-      if (resolvedAuth.useHashedCredentials) {
-        flushSessionsToDisk();
-      }
-      shutdownAuditLog();
       authRateLimiter?.dispose();
-      if (httpRedirectServer) {
-        await new Promise<void>((resolve) => httpRedirectServer.close(() => resolve()));
-      }
+      channelHealthMonitor?.stop();
       await close(opts);
     },
   };

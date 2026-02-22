@@ -1,12 +1,14 @@
-import type { OpenClawConfig } from "../config/config.js";
-import type { AnyAgentTool } from "./pi-tools.types.js";
-import type { SandboxToolPolicy } from "./sandbox.js";
 import { getChannelDock } from "../channels/dock.js";
+import { DEFAULT_SUBAGENT_MAX_SPAWN_DEPTH } from "../config/agent-limits.js";
+import type { OpenClawConfig } from "../config/config.js";
 import { resolveChannelGroupToolsPolicy } from "../config/group-policy.js";
 import { resolveThreadParentSessionKey } from "../sessions/session-key-utils.js";
 import { normalizeMessageChannel } from "../utils/message-channel.js";
 import { resolveAgentConfig, resolveAgentIdFromSessionKey } from "./agent-scope.js";
 import { compileGlobPatterns, matchesAnyGlobPattern } from "./glob-pattern.js";
+import type { AnyAgentTool } from "./pi-tools.types.js";
+import { pickSandboxToolPolicy } from "./sandbox-tool-policy.js";
+import type { SandboxToolPolicy } from "./sandbox.js";
 import { expandToolGroups, normalizeToolName } from "./tool-policy.js";
 
 function makeToolPolicyMatcher(policy: SandboxToolPolicy) {
@@ -82,12 +84,21 @@ function resolveSubagentDenyList(depth: number, maxSpawnDepth: number): string[]
 
 export function resolveSubagentToolPolicy(cfg?: OpenClawConfig, depth?: number): SandboxToolPolicy {
   const configured = cfg?.tools?.subagents?.tools;
-  const maxSpawnDepth = cfg?.agents?.defaults?.subagents?.maxSpawnDepth ?? 1;
+  const maxSpawnDepth =
+    cfg?.agents?.defaults?.subagents?.maxSpawnDepth ?? DEFAULT_SUBAGENT_MAX_SPAWN_DEPTH;
   const effectiveDepth = typeof depth === "number" && depth >= 0 ? depth : 1;
   const baseDeny = resolveSubagentDenyList(effectiveDepth, maxSpawnDepth);
-  const deny = [...baseDeny, ...(Array.isArray(configured?.deny) ? configured.deny : [])];
   const allow = Array.isArray(configured?.allow) ? configured.allow : undefined;
-  return { allow, deny };
+  const alsoAllow = Array.isArray(configured?.alsoAllow) ? configured.alsoAllow : undefined;
+  const explicitAllow = new Set(
+    [...(allow ?? []), ...(alsoAllow ?? [])].map((toolName) => normalizeToolName(toolName)),
+  );
+  const deny = [
+    ...baseDeny.filter((toolName) => !explicitAllow.has(normalizeToolName(toolName))),
+    ...(Array.isArray(configured?.deny) ? configured.deny : []),
+  ];
+  const mergedAllow = allow && alsoAllow ? Array.from(new Set([...allow, ...alsoAllow])) : allow;
+  return { allow: mergedAllow, deny };
 }
 
 export function isToolAllowedByPolicyName(name: string, policy?: SandboxToolPolicy): boolean {
@@ -111,34 +122,6 @@ type ToolPolicyConfig = {
   deny?: string[];
   profile?: string;
 };
-
-function unionAllow(base?: string[], extra?: string[]) {
-  if (!Array.isArray(extra) || extra.length === 0) {
-    return base;
-  }
-  // If the user is using alsoAllow without an allowlist, treat it as additive on top of
-  // an implicit allow-all policy.
-  if (!Array.isArray(base) || base.length === 0) {
-    return Array.from(new Set(["*", ...extra]));
-  }
-  return Array.from(new Set([...base, ...extra]));
-}
-
-function pickToolPolicy(config?: ToolPolicyConfig): SandboxToolPolicy | undefined {
-  if (!config) {
-    return undefined;
-  }
-  const allow = Array.isArray(config.allow)
-    ? unionAllow(config.allow, config.alsoAllow)
-    : Array.isArray(config.alsoAllow) && config.alsoAllow.length > 0
-      ? unionAllow(undefined, config.alsoAllow)
-      : undefined;
-  const deny = Array.isArray(config.deny) ? config.deny : undefined;
-  if (!allow && !deny) {
-    return undefined;
-  }
-  return { allow, deny };
-}
 
 function normalizeProviderKey(value: string): string {
   return value.trim().toLowerCase();
@@ -237,10 +220,10 @@ export function resolveEffectiveToolPolicy(params: {
   });
   return {
     agentId,
-    globalPolicy: pickToolPolicy(globalTools),
-    globalProviderPolicy: pickToolPolicy(providerPolicy),
-    agentPolicy: pickToolPolicy(agentTools),
-    agentProviderPolicy: pickToolPolicy(agentProviderPolicy),
+    globalPolicy: pickSandboxToolPolicy(globalTools),
+    globalProviderPolicy: pickSandboxToolPolicy(providerPolicy),
+    agentPolicy: pickSandboxToolPolicy(agentTools),
+    agentProviderPolicy: pickSandboxToolPolicy(agentProviderPolicy),
     profile,
     providerProfile: agentProviderPolicy?.profile ?? providerPolicy?.profile,
     // alsoAllow is applied at the profile stage (to avoid being filtered out early).
@@ -313,7 +296,7 @@ export function resolveGroupToolPolicy(params: {
       senderUsername: params.senderUsername,
       senderE164: params.senderE164,
     });
-  return pickToolPolicy(toolsConfig);
+  return pickSandboxToolPolicy(toolsConfig);
 }
 
 export function isToolAllowedByPolicies(

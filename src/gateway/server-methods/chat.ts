@@ -1,23 +1,25 @@
-import { CURRENT_SESSION_VERSION, SessionManager } from "@mariozechner/pi-coding-agent";
-import { randomUUID } from "node:crypto";
 import fs from "node:fs";
-import os from "node:os";
 import path from "node:path";
-import type { MsgContext } from "../../auto-reply/templating.js";
-import type { GatewayRequestContext, GatewayRequestHandlers } from "./types.js";
+import { CURRENT_SESSION_VERSION, SessionManager } from "@mariozechner/pi-coding-agent";
 import { resolveSessionAgentId } from "../../agents/agent-scope.js";
 import { resolveThinkingDefault } from "../../agents/model-selection.js";
 import { resolveAgentTimeoutMs } from "../../agents/timeout.js";
-import { listChatCommandsForConfig } from "../../auto-reply/commands-registry.js";
 import { dispatchInboundMessage } from "../../auto-reply/dispatch.js";
 import { createReplyDispatcher } from "../../auto-reply/reply/reply-dispatcher.js";
+import type { MsgContext } from "../../auto-reply/templating.js";
 import { createReplyPrefixOptions } from "../../channels/reply-prefix.js";
 import { resolveSessionFilePath } from "../../config/sessions.js";
 import { resolveSendPolicy } from "../../sessions/send-policy.js";
+import {
+  stripInlineDirectiveTagsForDisplay,
+  stripInlineDirectiveTagsFromMessageForDisplay,
+} from "../../utils/directive-tags.js";
 import { INTERNAL_MESSAGE_CHANNEL } from "../../utils/message-channel.js";
 import {
   abortChatRunById,
   abortChatRunsForSessionKey,
+  type ChatAbortControllerEntry,
+  type ChatAbortOps,
   isChatStopCommandText,
   resolveChatRunExpiresAtMs,
 } from "../chat-abort.js";
@@ -32,7 +34,6 @@ import {
   validateChatHistoryParams,
   validateChatInjectParams,
   validateChatSendParams,
-  validateChatTruncateParams,
 } from "../protocol/index.js";
 import { getMaxChatHistoryMessagesBytes } from "../server-constants.js";
 import {
@@ -43,6 +44,8 @@ import {
 } from "../session-utils.js";
 import { formatForLog } from "../ws-log.js";
 import { injectTimestamp, timestampOptsFromConfig } from "./agent-timestamp.js";
+import { normalizeRpcAttachmentsToChatAttachments } from "./attachment-normalize.js";
+import type { GatewayRequestContext, GatewayRequestHandlers } from "./types.js";
 
 type TranscriptAppendResult = {
   ok: boolean;
@@ -52,6 +55,19 @@ type TranscriptAppendResult = {
 };
 
 type AppendMessageArg = Parameters<SessionManager["appendMessage"]>[0];
+type AbortOrigin = "rpc" | "stop-command";
+
+type AbortedPartialSnapshot = {
+  runId: string;
+  sessionId: string;
+  text: string;
+  abortOrigin: AbortOrigin;
+};
+
+const CHAT_HISTORY_TEXT_MAX_CHARS = 12_000;
+const CHAT_HISTORY_MAX_SINGLE_MESSAGE_BYTES = 128 * 1024;
+const CHAT_HISTORY_OVERSIZED_PLACEHOLDER = "[chat.history omitted: message too large]";
+let chatHistoryPlaceholderEmitCount = 0;
 
 function stripDisallowedChatControlChars(message: string): string {
   let output = "";
@@ -72,6 +88,184 @@ export function sanitizeChatSendMessageInput(
     return { ok: false, error: "message must not contain null bytes" };
   }
   return { ok: true, message: stripDisallowedChatControlChars(normalized) };
+}
+
+function truncateChatHistoryText(text: string): { text: string; truncated: boolean } {
+  if (text.length <= CHAT_HISTORY_TEXT_MAX_CHARS) {
+    return { text, truncated: false };
+  }
+  return {
+    text: `${text.slice(0, CHAT_HISTORY_TEXT_MAX_CHARS)}\n...(truncated)...`,
+    truncated: true,
+  };
+}
+
+function sanitizeChatHistoryContentBlock(block: unknown): { block: unknown; changed: boolean } {
+  if (!block || typeof block !== "object") {
+    return { block, changed: false };
+  }
+  const entry = { ...(block as Record<string, unknown>) };
+  let changed = false;
+  if (typeof entry.text === "string") {
+    const stripped = stripInlineDirectiveTagsForDisplay(entry.text);
+    const res = truncateChatHistoryText(stripped.text);
+    entry.text = res.text;
+    changed ||= stripped.changed || res.truncated;
+  }
+  if (typeof entry.partialJson === "string") {
+    const res = truncateChatHistoryText(entry.partialJson);
+    entry.partialJson = res.text;
+    changed ||= res.truncated;
+  }
+  if (typeof entry.arguments === "string") {
+    const res = truncateChatHistoryText(entry.arguments);
+    entry.arguments = res.text;
+    changed ||= res.truncated;
+  }
+  if (typeof entry.thinking === "string") {
+    const res = truncateChatHistoryText(entry.thinking);
+    entry.thinking = res.text;
+    changed ||= res.truncated;
+  }
+  if ("thinkingSignature" in entry) {
+    delete entry.thinkingSignature;
+    changed = true;
+  }
+  const type = typeof entry.type === "string" ? entry.type : "";
+  if (type === "image" && typeof entry.data === "string") {
+    const bytes = Buffer.byteLength(entry.data, "utf8");
+    delete entry.data;
+    entry.omitted = true;
+    entry.bytes = bytes;
+    changed = true;
+  }
+  return { block: changed ? entry : block, changed };
+}
+
+function sanitizeChatHistoryMessage(message: unknown): { message: unknown; changed: boolean } {
+  if (!message || typeof message !== "object") {
+    return { message, changed: false };
+  }
+  const entry = { ...(message as Record<string, unknown>) };
+  let changed = false;
+
+  if ("details" in entry) {
+    delete entry.details;
+    changed = true;
+  }
+  if ("usage" in entry) {
+    delete entry.usage;
+    changed = true;
+  }
+  if ("cost" in entry) {
+    delete entry.cost;
+    changed = true;
+  }
+
+  if (typeof entry.content === "string") {
+    const stripped = stripInlineDirectiveTagsForDisplay(entry.content);
+    const res = truncateChatHistoryText(stripped.text);
+    entry.content = res.text;
+    changed ||= stripped.changed || res.truncated;
+  } else if (Array.isArray(entry.content)) {
+    const updated = entry.content.map((block) => sanitizeChatHistoryContentBlock(block));
+    if (updated.some((item) => item.changed)) {
+      entry.content = updated.map((item) => item.block);
+      changed = true;
+    }
+  }
+
+  if (typeof entry.text === "string") {
+    const stripped = stripInlineDirectiveTagsForDisplay(entry.text);
+    const res = truncateChatHistoryText(stripped.text);
+    entry.text = res.text;
+    changed ||= stripped.changed || res.truncated;
+  }
+
+  return { message: changed ? entry : message, changed };
+}
+
+function sanitizeChatHistoryMessages(messages: unknown[]): unknown[] {
+  if (messages.length === 0) {
+    return messages;
+  }
+  let changed = false;
+  const next = messages.map((message) => {
+    const res = sanitizeChatHistoryMessage(message);
+    changed ||= res.changed;
+    return res.message;
+  });
+  return changed ? next : messages;
+}
+
+function jsonUtf8Bytes(value: unknown): number {
+  try {
+    return Buffer.byteLength(JSON.stringify(value), "utf8");
+  } catch {
+    return Buffer.byteLength(String(value), "utf8");
+  }
+}
+
+function buildOversizedHistoryPlaceholder(message?: unknown): Record<string, unknown> {
+  const role =
+    message &&
+    typeof message === "object" &&
+    typeof (message as { role?: unknown }).role === "string"
+      ? (message as { role: string }).role
+      : "assistant";
+  const timestamp =
+    message &&
+    typeof message === "object" &&
+    typeof (message as { timestamp?: unknown }).timestamp === "number"
+      ? (message as { timestamp: number }).timestamp
+      : Date.now();
+  return {
+    role,
+    timestamp,
+    content: [{ type: "text", text: CHAT_HISTORY_OVERSIZED_PLACEHOLDER }],
+    __openclaw: { truncated: true, reason: "oversized" },
+  };
+}
+
+function replaceOversizedChatHistoryMessages(params: {
+  messages: unknown[];
+  maxSingleMessageBytes: number;
+}): { messages: unknown[]; replacedCount: number } {
+  const { messages, maxSingleMessageBytes } = params;
+  if (messages.length === 0) {
+    return { messages, replacedCount: 0 };
+  }
+  let replacedCount = 0;
+  const next = messages.map((message) => {
+    if (jsonUtf8Bytes(message) <= maxSingleMessageBytes) {
+      return message;
+    }
+    replacedCount += 1;
+    return buildOversizedHistoryPlaceholder(message);
+  });
+  return { messages: replacedCount > 0 ? next : messages, replacedCount };
+}
+
+function enforceChatHistoryFinalBudget(params: { messages: unknown[]; maxBytes: number }): {
+  messages: unknown[];
+  placeholderCount: number;
+} {
+  const { messages, maxBytes } = params;
+  if (messages.length === 0) {
+    return { messages, placeholderCount: 0 };
+  }
+  if (jsonUtf8Bytes(messages) <= maxBytes) {
+    return { messages, placeholderCount: 0 };
+  }
+  const last = messages.at(-1);
+  if (last && jsonUtf8Bytes([last]) <= maxBytes) {
+    return { messages: [last], placeholderCount: 0 };
+  }
+  const placeholder = buildOversizedHistoryPlaceholder(last);
+  if (jsonUtf8Bytes([placeholder]) <= maxBytes) {
+    return { messages: [placeholder], placeholderCount: 1 };
+  }
+  return { messages: [], placeholderCount: 0 };
 }
 
 function resolveTranscriptPath(params: {
@@ -112,10 +306,31 @@ function ensureTranscriptFile(params: { transcriptPath: string; sessionId: strin
       timestamp: new Date().toISOString(),
       cwd: process.cwd(),
     };
-    fs.writeFileSync(params.transcriptPath, `${JSON.stringify(header)}\n`, "utf-8");
+    fs.writeFileSync(params.transcriptPath, `${JSON.stringify(header)}\n`, {
+      encoding: "utf-8",
+      mode: 0o600,
+    });
     return { ok: true };
   } catch (err) {
     return { ok: false, error: err instanceof Error ? err.message : String(err) };
+  }
+}
+
+function transcriptHasIdempotencyKey(transcriptPath: string, idempotencyKey: string): boolean {
+  try {
+    const lines = fs.readFileSync(transcriptPath, "utf-8").split(/\r?\n/);
+    for (const line of lines) {
+      if (!line.trim()) {
+        continue;
+      }
+      const parsed = JSON.parse(line) as { message?: { idempotencyKey?: unknown } };
+      if (parsed?.message?.idempotencyKey === idempotencyKey) {
+        return true;
+      }
+    }
+    return false;
+  } catch {
+    return false;
   }
 }
 
@@ -127,6 +342,12 @@ function appendAssistantTranscriptMessage(params: {
   sessionFile?: string;
   agentId?: string;
   createIfMissing?: boolean;
+  idempotencyKey?: string;
+  abortMeta?: {
+    aborted: true;
+    origin: AbortOrigin;
+    runId: string;
+  };
 }): TranscriptAppendResult {
   const transcriptPath = resolveTranscriptPath({
     sessionId: params.sessionId,
@@ -149,6 +370,10 @@ function appendAssistantTranscriptMessage(params: {
     if (!ensured.ok) {
       return { ok: false, error: ensured.error ?? "failed to create transcript file" };
     }
+  }
+
+  if (params.idempotencyKey && transcriptHasIdempotencyKey(transcriptPath, params.idempotencyKey)) {
+    return { ok: true };
   }
 
   const now = Date.now();
@@ -179,6 +404,16 @@ function appendAssistantTranscriptMessage(params: {
     api: "openai-responses",
     provider: "openclaw",
     model: "gateway-injected",
+    ...(params.idempotencyKey ? { idempotencyKey: params.idempotencyKey } : {}),
+    ...(params.abortMeta
+      ? {
+          openclawAbort: {
+            aborted: true,
+            origin: params.abortMeta.origin,
+            runId: params.abortMeta.runId,
+          },
+        }
+      : {}),
   };
 
   try {
@@ -190,6 +425,103 @@ function appendAssistantTranscriptMessage(params: {
   } catch (err) {
     return { ok: false, error: err instanceof Error ? err.message : String(err) };
   }
+}
+
+function collectSessionAbortPartials(params: {
+  chatAbortControllers: Map<string, ChatAbortControllerEntry>;
+  chatRunBuffers: Map<string, string>;
+  sessionKey: string;
+  abortOrigin: AbortOrigin;
+}): AbortedPartialSnapshot[] {
+  const out: AbortedPartialSnapshot[] = [];
+  for (const [runId, active] of params.chatAbortControllers) {
+    if (active.sessionKey !== params.sessionKey) {
+      continue;
+    }
+    const text = params.chatRunBuffers.get(runId);
+    if (!text || !text.trim()) {
+      continue;
+    }
+    out.push({
+      runId,
+      sessionId: active.sessionId,
+      text,
+      abortOrigin: params.abortOrigin,
+    });
+  }
+  return out;
+}
+
+function persistAbortedPartials(params: {
+  context: Pick<GatewayRequestContext, "logGateway">;
+  sessionKey: string;
+  snapshots: AbortedPartialSnapshot[];
+}) {
+  if (params.snapshots.length === 0) {
+    return;
+  }
+  const { storePath, entry } = loadSessionEntry(params.sessionKey);
+  for (const snapshot of params.snapshots) {
+    const sessionId = entry?.sessionId ?? snapshot.sessionId ?? snapshot.runId;
+    const appended = appendAssistantTranscriptMessage({
+      message: snapshot.text,
+      sessionId,
+      storePath,
+      sessionFile: entry?.sessionFile,
+      createIfMissing: true,
+      idempotencyKey: `${snapshot.runId}:assistant`,
+      abortMeta: {
+        aborted: true,
+        origin: snapshot.abortOrigin,
+        runId: snapshot.runId,
+      },
+    });
+    if (!appended.ok) {
+      params.context.logGateway.warn(
+        `chat.abort transcript append failed: ${appended.error ?? "unknown error"}`,
+      );
+    }
+  }
+}
+
+function createChatAbortOps(context: GatewayRequestContext): ChatAbortOps {
+  return {
+    chatAbortControllers: context.chatAbortControllers,
+    chatRunBuffers: context.chatRunBuffers,
+    chatDeltaSentAt: context.chatDeltaSentAt,
+    chatAbortedRuns: context.chatAbortedRuns,
+    removeChatRun: context.removeChatRun,
+    agentRunSeq: context.agentRunSeq,
+    broadcast: context.broadcast,
+    nodeSendToSession: context.nodeSendToSession,
+  };
+}
+
+function abortChatRunsForSessionKeyWithPartials(params: {
+  context: GatewayRequestContext;
+  ops: ChatAbortOps;
+  sessionKey: string;
+  abortOrigin: AbortOrigin;
+  stopReason?: string;
+}) {
+  const snapshots = collectSessionAbortPartials({
+    chatAbortControllers: params.context.chatAbortControllers,
+    chatRunBuffers: params.context.chatRunBuffers,
+    sessionKey: params.sessionKey,
+    abortOrigin: params.abortOrigin,
+  });
+  const res = abortChatRunsForSessionKey(params.ops, {
+    sessionKey: params.sessionKey,
+    stopReason: params.stopReason,
+  });
+  if (res.aborted) {
+    persistAbortedPartials({
+      context: params.context,
+      sessionKey: params.sessionKey,
+      snapshots,
+    });
+  }
+  return res;
 }
 
 function nextChatSeq(context: { agentRunSeq: Map<string, number> }, runId: string) {
@@ -210,7 +542,7 @@ function broadcastChatFinal(params: {
     sessionKey: params.sessionKey,
     seq,
     state: "final" as const,
-    message: params.message,
+    message: stripInlineDirectiveTagsFromMessageForDisplay(params.message),
   };
   params.context.broadcast("chat", payload);
   params.context.nodeSendToSession(params.sessionKey, "chat", payload);
@@ -263,7 +595,22 @@ export const chatHandlers: GatewayRequestHandlers = {
     const max = Math.min(hardMax, requested);
     const sliced = rawMessages.length > max ? rawMessages.slice(-max) : rawMessages;
     const sanitized = stripEnvelopeFromMessages(sliced);
-    const capped = capArrayByJsonBytes(sanitized, getMaxChatHistoryMessagesBytes()).items;
+    const normalized = sanitizeChatHistoryMessages(sanitized);
+    const maxHistoryBytes = getMaxChatHistoryMessagesBytes();
+    const perMessageHardCap = Math.min(CHAT_HISTORY_MAX_SINGLE_MESSAGE_BYTES, maxHistoryBytes);
+    const replaced = replaceOversizedChatHistoryMessages({
+      messages: normalized,
+      maxSingleMessageBytes: perMessageHardCap,
+    });
+    const capped = capArrayByJsonBytes(replaced.messages, maxHistoryBytes).items;
+    const bounded = enforceChatHistoryFinalBudget({ messages: capped, maxBytes: maxHistoryBytes });
+    const placeholderCount = replaced.replacedCount + bounded.placeholderCount;
+    if (placeholderCount > 0) {
+      chatHistoryPlaceholderEmitCount += placeholderCount;
+      context.logGateway.debug(
+        `chat.history omitted oversized payloads placeholders=${placeholderCount} total=${chatHistoryPlaceholderEmitCount}`,
+      );
+    }
     let thinkingLevel = entry?.thinkingLevel;
     if (!thinkingLevel) {
       const configured = cfg.agents?.defaults?.thinkingDefault;
@@ -285,7 +632,7 @@ export const chatHandlers: GatewayRequestHandlers = {
     respond(true, {
       sessionKey,
       sessionId,
-      messages: capped,
+      messages: bounded.messages,
       thinkingLevel,
       verboseLevel,
     });
@@ -302,25 +649,19 @@ export const chatHandlers: GatewayRequestHandlers = {
       );
       return;
     }
-    const { sessionKey, runId } = params as {
+    const { sessionKey: rawSessionKey, runId } = params as {
       sessionKey: string;
       runId?: string;
     };
 
-    const ops = {
-      chatAbortControllers: context.chatAbortControllers,
-      chatRunBuffers: context.chatRunBuffers,
-      chatDeltaSentAt: context.chatDeltaSentAt,
-      chatAbortedRuns: context.chatAbortedRuns,
-      removeChatRun: context.removeChatRun,
-      agentRunSeq: context.agentRunSeq,
-      broadcast: context.broadcast,
-      nodeSendToSession: context.nodeSendToSession,
-    };
+    const ops = createChatAbortOps(context);
 
     if (!runId) {
-      const res = abortChatRunsForSessionKey(ops, {
-        sessionKey,
+      const res = abortChatRunsForSessionKeyWithPartials({
+        context,
+        ops,
+        sessionKey: rawSessionKey,
+        abortOrigin: "rpc",
         stopReason: "rpc",
       });
       respond(true, { ok: true, aborted: res.aborted, runIds: res.runIds });
@@ -332,7 +673,7 @@ export const chatHandlers: GatewayRequestHandlers = {
       respond(true, { ok: true, aborted: false, runIds: [] });
       return;
     }
-    if (active.sessionKey !== sessionKey) {
+    if (active.sessionKey !== rawSessionKey) {
       respond(
         false,
         undefined,
@@ -341,11 +682,26 @@ export const chatHandlers: GatewayRequestHandlers = {
       return;
     }
 
+    const partialText = context.chatRunBuffers.get(runId);
     const res = abortChatRunById(ops, {
       runId,
-      sessionKey,
+      sessionKey: rawSessionKey,
       stopReason: "rpc",
     });
+    if (res.aborted && partialText && partialText.trim()) {
+      persistAbortedPartials({
+        context,
+        sessionKey: rawSessionKey,
+        snapshots: [
+          {
+            runId,
+            sessionId: active.sessionId,
+            text: partialText,
+            abortOrigin: "rpc",
+          },
+        ],
+      });
+    }
     respond(true, {
       ok: true,
       aborted: res.aborted,
@@ -376,7 +732,6 @@ export const chatHandlers: GatewayRequestHandlers = {
         content?: unknown;
       }>;
       timeoutMs?: number;
-      skillFilter?: string[];
       idempotencyKey: string;
     };
     const sanitizedMessageResult = sanitizeChatSendMessageInput(p.message);
@@ -390,24 +745,7 @@ export const chatHandlers: GatewayRequestHandlers = {
     }
     const inboundMessage = sanitizedMessageResult.message;
     const stopCommand = isChatStopCommandText(inboundMessage);
-    const normalizedAttachments =
-      p.attachments
-        ?.map((a) => ({
-          type: typeof a?.type === "string" ? a.type : undefined,
-          mimeType: typeof a?.mimeType === "string" ? a.mimeType : undefined,
-          fileName: typeof a?.fileName === "string" ? a.fileName : undefined,
-          content:
-            typeof a?.content === "string"
-              ? a.content
-              : ArrayBuffer.isView(a?.content)
-                ? Buffer.from(
-                    a.content.buffer,
-                    a.content.byteOffset,
-                    a.content.byteLength,
-                  ).toString("base64")
-                : undefined,
-        }))
-        .filter((a) => a.content) ?? [];
+    const normalizedAttachments = normalizeRpcAttachmentsToChatAttachments(p.attachments);
     const rawMessage = inboundMessage.trim();
     if (!rawMessage && normalizedAttachments.length === 0) {
       respond(
@@ -419,33 +757,14 @@ export const chatHandlers: GatewayRequestHandlers = {
     }
     let parsedMessage = inboundMessage;
     let parsedImages: ChatImageContent[] = [];
-    // Temp files saved for binary attachments — cleaned up after dispatch
-    const binaryTempFiles: string[] = [];
-    const binaryMediaPaths: string[] = [];
-    const binaryMediaTypes: string[] = [];
     if (normalizedAttachments.length > 0) {
       try {
         const parsed = await parseMessageWithAttachments(inboundMessage, normalizedAttachments, {
-          maxBytes: 25_000_000,
+          maxBytes: 5_000_000,
           log: context.logGateway,
         });
         parsedMessage = parsed.message;
         parsedImages = parsed.images;
-        // Save binary attachments (PDF, DOCX, etc.) to temp files for media understanding
-        for (const bf of parsed.binaryFiles) {
-          try {
-            const ext = path.extname(bf.fileName) || "";
-            const tmpPath = path.join(os.tmpdir(), `openclaw-chat-${randomUUID()}${ext}`);
-            fs.writeFileSync(tmpPath, Buffer.from(bf.base64, "base64"));
-            binaryTempFiles.push(tmpPath);
-            binaryMediaPaths.push(tmpPath);
-            binaryMediaTypes.push(bf.mimeType);
-          } catch (err) {
-            context.logGateway.warn(
-              `chat.send: failed to save binary attachment ${bf.fileName}: ${String(err)}`,
-            );
-          }
-        }
       } catch (err) {
         respond(false, undefined, errorShape(ErrorCodes.INVALID_REQUEST, String(err)));
         return;
@@ -477,19 +796,13 @@ export const chatHandlers: GatewayRequestHandlers = {
     }
 
     if (stopCommand) {
-      const res = abortChatRunsForSessionKey(
-        {
-          chatAbortControllers: context.chatAbortControllers,
-          chatRunBuffers: context.chatRunBuffers,
-          chatDeltaSentAt: context.chatDeltaSentAt,
-          chatAbortedRuns: context.chatAbortedRuns,
-          removeChatRun: context.removeChatRun,
-          agentRunSeq: context.agentRunSeq,
-          broadcast: context.broadcast,
-          nodeSendToSession: context.nodeSendToSession,
-        },
-        { sessionKey: rawSessionKey, stopReason: "stop" },
-      );
+      const res = abortChatRunsForSessionKeyWithPartials({
+        context,
+        ops: createChatAbortOps(context),
+        sessionKey: rawSessionKey,
+        abortOrigin: "stop-command",
+        stopReason: "stop",
+      });
       respond(true, { ok: true, aborted: res.aborted, runIds: res.runIds });
       return;
     }
@@ -554,15 +867,6 @@ export const chatHandlers: GatewayRequestHandlers = {
         SenderName: clientInfo?.displayName,
         SenderUsername: clientInfo?.displayName,
         GatewayClientScopes: client?.connect?.scopes,
-        // Binary attachments saved to temp files for media understanding (PDF, DOCX, etc.)
-        ...(binaryMediaPaths.length > 0 && {
-          MediaPath: binaryMediaPaths[0],
-          MediaUrl: binaryMediaPaths[0],
-          MediaType: binaryMediaTypes[0],
-          MediaPaths: binaryMediaPaths,
-          MediaUrls: binaryMediaPaths,
-          MediaTypes: binaryMediaTypes,
-        }),
       };
 
       const agentId = resolveSessionAgentId({
@@ -601,7 +905,6 @@ export const chatHandlers: GatewayRequestHandlers = {
           runId: clientRunId,
           abortSignal: abortController.signal,
           images: parsedImages.length > 0 ? parsedImages : undefined,
-          disableBlockStreaming: true,
           onAgentRunStart: (runId) => {
             agentRunStarted = true;
             const connId = typeof client?.connId === "string" ? client.connId : undefined;
@@ -622,7 +925,6 @@ export const chatHandlers: GatewayRequestHandlers = {
             }
           },
           onModelSelected,
-          skillFilter: p.skillFilter,
         },
       })
         .then(() => {
@@ -697,14 +999,6 @@ export const chatHandlers: GatewayRequestHandlers = {
         })
         .finally(() => {
           context.chatAbortControllers.delete(clientRunId);
-          // Clean up temp files saved for binary attachments
-          for (const tmpPath of binaryTempFiles) {
-            try {
-              fs.unlinkSync(tmpPath);
-            } catch {
-              // Best-effort cleanup
-            }
-          }
         });
     } catch (err) {
       const error = errorShape(ErrorCodes.UNAVAILABLE, String(err));
@@ -779,91 +1073,11 @@ export const chatHandlers: GatewayRequestHandlers = {
       sessionKey: rawSessionKey,
       seq: 0,
       state: "final" as const,
-      message: appended.message,
+      message: stripInlineDirectiveTagsFromMessageForDisplay(appended.message),
     };
     context.broadcast("chat", chatPayload);
     context.nodeSendToSession(rawSessionKey, "chat", chatPayload);
 
     respond(true, { ok: true, messageId: appended.messageId });
-  },
-  "chat.commands": ({ respond }) => {
-    const { cfg } = loadSessionEntry("main");
-    const commands = listChatCommandsForConfig(cfg);
-    const items = commands
-      .filter((cmd) => cmd.textAliases.length > 0)
-      .map((cmd) => ({
-        name: cmd.textAliases[0],
-        description: cmd.description,
-        category: cmd.category,
-        acceptsArgs: Boolean(cmd.acceptsArgs),
-      }));
-    respond(true, { commands: items });
-  },
-  "chat.truncate": ({ params, respond }) => {
-    if (!validateChatTruncateParams(params)) {
-      respond(
-        false,
-        undefined,
-        errorShape(
-          ErrorCodes.INVALID_REQUEST,
-          `invalid chat.truncate params: ${formatValidationErrors(validateChatTruncateParams.errors)}`,
-        ),
-      );
-      return;
-    }
-    const { sessionKey, afterIndex } = params as { sessionKey: string; afterIndex: number };
-    const { storePath, entry } = loadSessionEntry(sessionKey);
-    const sessionId = entry?.sessionId;
-    if (!sessionId || !storePath) {
-      respond(false, undefined, errorShape(ErrorCodes.INVALID_REQUEST, "session not found"));
-      return;
-    }
-    const transcriptPath = entry?.sessionFile
-      ? entry.sessionFile
-      : path.join(path.dirname(storePath), `${sessionId}.jsonl`);
-    if (!fs.existsSync(transcriptPath)) {
-      respond(
-        false,
-        undefined,
-        errorShape(ErrorCodes.INVALID_REQUEST, "transcript file not found"),
-      );
-      return;
-    }
-    try {
-      const raw = fs.readFileSync(transcriptPath, "utf-8");
-      const lines = raw.split(/\r?\n/);
-      const kept: string[] = [];
-      let messageCount = 0;
-      for (const line of lines) {
-        if (!line.trim()) {
-          continue;
-        }
-        let parsed: Record<string, unknown> | null = null;
-        try {
-          parsed = JSON.parse(line);
-        } catch {
-          kept.push(line);
-          continue;
-        }
-        if (parsed?.message) {
-          if (messageCount >= afterIndex) {
-            break;
-          }
-          messageCount++;
-        }
-        kept.push(line);
-      }
-      fs.writeFileSync(transcriptPath, kept.map((l) => `${l}\n`).join(""), "utf-8");
-      respond(true, { ok: true, remaining: messageCount });
-    } catch (err) {
-      respond(
-        false,
-        undefined,
-        errorShape(
-          ErrorCodes.UNAVAILABLE,
-          `truncate failed: ${err instanceof Error ? err.message : String(err)}`,
-        ),
-      );
-    }
   },
 };
