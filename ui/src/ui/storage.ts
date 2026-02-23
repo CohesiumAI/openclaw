@@ -81,7 +81,8 @@ export function loadSettings(): UiSettings {
         typeof parsed.gatewayUrl === "string" && parsed.gatewayUrl.trim()
           ? parsed.gatewayUrl.trim()
           : defaults.gatewayUrl,
-      token: "", // Never load token from localStorage — auth uses HttpOnly cookies
+      token:
+        typeof parsed.token === "string" ? parsed.token : defaults.token,
       sessionKey:
         typeof parsed.sessionKey === "string" && parsed.sessionKey.trim()
           ? parsed.sessionKey.trim()
@@ -167,9 +168,7 @@ export function loadSettings(): UiSettings {
 }
 
 export function saveSettings(next: UiSettings) {
-  // Strip sensitive fields before persisting — token must never be in localStorage
-  const { token: _token, ...safe } = next;
-  localStorage.setItem(KEY, JSON.stringify({ ...safe, token: "" }));
+  localStorage.setItem(KEY, JSON.stringify(next));
 }
 
 const MIGRATION_THINKING_KEY = "openclaw.migration.thinking-default-off";
