@@ -23,7 +23,7 @@ export const usageStylesPart2 = `
   .usage-error-sub {
     grid-column: 1 / -1;
     font-size: 11px;
-    color: var(--muted);
+    color: var(--text-muted);
   }
   .usage-badges {
     display: flex;
@@ -54,7 +54,7 @@ export const usageStylesPart2 = `
     font-size: 12px;
   }
   .usage-meta-item span {
-    color: var(--muted);
+    color: var(--text-muted);
     font-size: 11px;
   }
   .usage-insights-grid {
@@ -76,7 +76,7 @@ export const usageStylesPart2 = `
   }
   .usage-insight-subtitle {
     font-size: 11px;
-    color: var(--muted);
+    color: var(--text-muted);
     margin-top: 6px;
   }
   /* ===== CHART TOGGLE ===== */
@@ -92,7 +92,7 @@ export const usageStylesPart2 = `
     font-size: 13px;
     background: transparent;
     border: none;
-    color: var(--muted);
+    color: var(--text-muted);
     cursor: pointer;
     transition: all 0.15s;
   }
@@ -100,7 +100,7 @@ export const usageStylesPart2 = `
     color: var(--text);
   }
   .chart-toggle .toggle-btn.active {
-    background: var(--accent);
+    background: #ff4d4d;
     color: white;
   }
   .chart-toggle.small .toggle-btn {
@@ -157,20 +157,20 @@ export const usageStylesPart2 = `
   .daily-bar {
     width: 100%;
     max-width: var(--bar-max-width, 32px);
-    background: var(--accent);
+    background: #ff4d4d;
     border-radius: 3px 3px 0 0;
     min-height: 2px;
     transition: all 0.15s;
     overflow: hidden;
   }
   .daily-bar-wrapper:hover .daily-bar {
-    background: var(--accent-strong);
+    background: #cc3d3d;
   }
   .daily-bar-label {
     position: absolute;
     bottom: -28px;
     font-size: 10px;
-    color: var(--muted);
+    color: var(--text-muted);
     white-space: nowrap;
     text-align: center;
     transform: rotate(-35deg);
@@ -182,7 +182,7 @@ export const usageStylesPart2 = `
     left: 50%;
     transform: translateX(-50%);
     font-size: 10px;
-    color: var(--muted);
+    color: var(--text-muted);
     white-space: nowrap;
   }
   .daily-bar-tooltip {
@@ -253,7 +253,7 @@ export const usageStylesPart2 = `
   .cost-breakdown-total {
     margin-top: 10px;
     font-size: 12px;
-    color: var(--muted);
+    color: var(--text-muted);
   }
   .legend-item {
     display: flex;
@@ -282,7 +282,7 @@ export const usageStylesPart2 = `
     background: #06b6d4;
   }
   .legend-dot.system {
-    background: var(--accent);
+    background: #ff4d4d;
   }
   .legend-dot.skills {
     background: #8b5cf6;
@@ -296,7 +296,7 @@ export const usageStylesPart2 = `
   .cost-breakdown-note {
     margin-top: 10px;
     font-size: 11px;
-    color: var(--muted);
+    color: var(--text-muted);
     line-height: 1.4;
   }
 
@@ -344,7 +344,7 @@ export const usageStylesPart2 = `
   }
   .session-bar-meta {
     font-size: 10px;
-    color: var(--muted);
+    color: var(--text-muted);
     font-weight: 400;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -360,7 +360,7 @@ export const usageStylesPart2 = `
   }
   .session-bar-fill {
     height: 100%;
-    background: color-mix(in srgb, var(--accent) 70%, transparent);
+    background: rgba(255, 77, 77, 0.7);
     border-radius: 4px;
     transition: width 0.3s ease;
   }
@@ -369,7 +369,7 @@ export const usageStylesPart2 = `
     text-align: right;
     font-size: 12px;
     font-family: var(--font-mono);
-    color: var(--muted);
+    color: var(--text-muted);
   }
   .session-bar-actions {
     display: inline-flex;
@@ -385,7 +385,7 @@ export const usageStylesPart2 = `
     background: var(--bg-secondary);
     font-size: 11px;
     font-weight: 600;
-    color: var(--muted);
+    color: var(--text-muted);
     cursor: pointer;
     transition: background 0.15s, border-color 0.15s, color 0.15s;
   }
@@ -428,30 +428,30 @@ export const usageStylesPart2 = `
   }
   .timeseries-svg .axis-label {
     font-size: 10px;
-    fill: var(--muted);
+    fill: var(--text-muted);
   }
   .timeseries-svg .ts-area {
-    fill: var(--accent);
+    fill: #ff4d4d;
     fill-opacity: 0.1;
   }
   .timeseries-svg .ts-line {
     fill: none;
-    stroke: var(--accent);
+    stroke: #ff4d4d;
     stroke-width: 2;
   }
   .timeseries-svg .ts-dot {
-    fill: var(--accent);
+    fill: #ff4d4d;
     transition: r 0.15s, fill 0.15s;
   }
   .timeseries-svg .ts-dot:hover {
     r: 5;
   }
   .timeseries-svg .ts-bar {
-    fill: var(--accent);
+    fill: #ff4d4d;
     transition: fill 0.15s;
   }
   .timeseries-svg .ts-bar:hover {
-    fill: var(--accent-strong);
+    fill: #cc3d3d;
   }
   .timeseries-svg .ts-bar.output { fill: #ef4444; }
   .timeseries-svg .ts-bar.input { fill: #f59e0b; }
@@ -460,7 +460,7 @@ export const usageStylesPart2 = `
   .timeseries-summary {
     margin-top: 12px;
     font-size: 13px;
-    color: var(--muted);
+    color: var(--text-muted);
     display: flex;
     flex-wrap: wrap;
     gap: 8px;
@@ -468,7 +468,7 @@ export const usageStylesPart2 = `
   .timeseries-loading {
     padding: 24px;
     text-align: center;
-    color: var(--muted);
+    color: var(--text-muted);
   }
 
   /* ===== SESSION LOGS ===== */
@@ -491,7 +491,7 @@ export const usageStylesPart2 = `
   .session-logs-loading {
     padding: 24px;
     text-align: center;
-    color: var(--muted);
+    color: var(--text-muted);
   }
   .session-logs-list {
     max-height: 400px;
@@ -519,7 +519,7 @@ export const usageStylesPart2 = `
     gap: 8px;
     align-items: center;
     font-size: 11px;
-    color: var(--muted);
+    color: var(--text-muted);
     flex-wrap: wrap;
   }
   .session-log-role {
@@ -536,7 +536,7 @@ export const usageStylesPart2 = `
     color: var(--accent);
   }
   .session-log-entry.assistant .session-log-role {
-    color: var(--muted);
+    color: var(--text-muted);
   }
   .session-log-content {
     font-size: 13px;
@@ -567,7 +567,7 @@ export const usageStylesPart2 = `
   }
   .context-weight-desc {
     font-size: 12px;
-    color: var(--muted);
+    color: var(--text-muted);
     margin: 0 0 12px 0;
   }
   .context-stacked-bar {
@@ -582,7 +582,7 @@ export const usageStylesPart2 = `
     transition: width 0.3s ease;
   }
   .context-segment.system {
-    background: var(--accent);
+    background: #ff4d4d;
   }
   .context-segment.skills {
     background: #8b5cf6;
@@ -603,7 +603,7 @@ export const usageStylesPart2 = `
     margin-top: 10px;
     font-size: 12px;
     font-weight: 600;
-    color: var(--muted);
+    color: var(--text-muted);
   }
   .context-details {
     margin-top: 12px;
@@ -632,7 +632,7 @@ export const usageStylesPart2 = `
     padding: 8px 14px;
     font-size: 11px;
     text-transform: uppercase;
-    color: var(--muted);
+    color: var(--text-muted);
     background: var(--bg-secondary);
     border-bottom: 1px solid var(--border);
   }
@@ -651,7 +651,7 @@ export const usageStylesPart2 = `
     color: var(--text);
   }
   .context-list-item .muted {
-    color: var(--muted);
+    color: var(--text-muted);
     font-family: var(--font-mono);
   }
 
@@ -662,7 +662,7 @@ export const usageStylesPart2 = `
     background: var(--bg-secondary);
     border-radius: 8px;
     font-size: 13px;
-    color: var(--muted);
+    color: var(--text-muted);
     line-height: 1.5;
   }
 

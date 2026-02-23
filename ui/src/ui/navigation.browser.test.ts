@@ -1,11 +1,15 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { OpenClawApp } from "./app.ts";
 import "../styles.css";
-import { mountApp as mountTestApp, registerAppMountHooks } from "./test-helpers/app-mount.ts";
 
-registerAppMountHooks();
+// oxlint-disable-next-line typescript/unbound-method
+const originalConnect = OpenClawApp.prototype.connect;
 
 function mountApp(pathname: string) {
-  return mountTestApp(pathname);
+  window.history.replaceState({}, "", pathname);
+  const app = document.createElement("openclaw-app") as OpenClawApp;
+  document.body.append(app);
+  return app;
 }
 
 function nextFrame() {
@@ -13,6 +17,22 @@ function nextFrame() {
     requestAnimationFrame(() => resolve());
   });
 }
+
+beforeEach(() => {
+  OpenClawApp.prototype.connect = () => {
+    // no-op: avoid real gateway WS connections in browser tests
+  };
+  window.__OPENCLAW_CONTROL_UI_BASE_PATH__ = undefined;
+  localStorage.clear();
+  document.body.innerHTML = "";
+});
+
+afterEach(() => {
+  OpenClawApp.prototype.connect = originalConnect;
+  window.__OPENCLAW_CONTROL_UI_BASE_PATH__ = undefined;
+  localStorage.clear();
+  document.body.innerHTML = "";
+});
 
 describe("control UI routing", () => {
   it("hydrates the tab from the location", async () => {

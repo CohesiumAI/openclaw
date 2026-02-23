@@ -1,6 +1,7 @@
 import { html, nothing } from "lit";
-import { normalizeToolName } from "../../../../src/agents/tool-policy-shared.js";
 import type { SkillStatusEntry, SkillStatusReport } from "../types.ts";
+import type { SkillGroup } from "./skills-grouping.ts";
+import { normalizeToolName } from "../../../../src/agents/tool-policy.js";
 import {
   isAllowedByPolicy,
   matchesList,
@@ -9,7 +10,6 @@ import {
   resolveToolProfile,
   TOOL_SECTIONS,
 } from "./agents-utils.ts";
-import type { SkillGroup } from "./skills-grouping.ts";
 import { groupSkills } from "./skills-grouping.ts";
 import {
   computeSkillMissing,
@@ -301,27 +301,17 @@ export function renderAgentSkills(params: {
             }
           </div>
         </div>
-        <div class="row" style="gap: 8px; flex-wrap: wrap;">
-          <div class="row" style="gap: 4px; border: 1px solid var(--border); border-radius: var(--radius-md); padding: 2px;">
-            <button class="btn btn--sm" ?disabled=${!editable} @click=${() => params.onClear(params.agentId)}>
-              Enable All
-            </button>
-            <button
-              class="btn btn--sm"
-              ?disabled=${!editable}
-              @click=${() => params.onDisableAll(params.agentId)}
-            >
-              Disable All
-            </button>
-            <button
-              class="btn btn--sm"
-              ?disabled=${!editable || !usingAllowlist}
-              @click=${() => params.onClear(params.agentId)}
-              title="Remove per-agent allowlist and use all skills"
-            >
-              Reset
-            </button>
-          </div>
+        <div class="row" style="gap: 8px;">
+          <button class="btn btn--sm" ?disabled=${!editable} @click=${() => params.onClear(params.agentId)}>
+            Use All
+          </button>
+          <button
+            class="btn btn--sm"
+            ?disabled=${!editable}
+            @click=${() => params.onDisableAll(params.agentId)}
+          >
+            Disable All
+          </button>
           <button class="btn btn--sm" ?disabled=${params.configLoading} @click=${params.onConfigReload}>
             Reload Config
           </button>
