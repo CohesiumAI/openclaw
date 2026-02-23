@@ -31,7 +31,12 @@ import {
   type Tab,
 } from "./navigation.ts";
 import { schedulePrefSync } from "./preferences-sync.ts";
-import { saveSettings, type UiSettings } from "./storage.ts";
+import {
+  pushProjectCreate,
+  pushProjectDelete,
+  pushProjectUpdate,
+} from "./projects-sync.ts";
+import { saveSettings, type Project, type UiSettings } from "./storage.ts";
 import { startThemeTransition, type ThemeTransitionContext } from "./theme-transition.ts";
 import { resolveTheme, type ResolvedTheme, type ThemeMode } from "./theme.ts";
 
@@ -58,6 +63,7 @@ type SettingsHost = {
 };
 
 export function applySettings(host: SettingsHost, next: UiSettings) {
+  const prev = host.settings;
   const normalized = {
     ...next,
     lastActiveSessionKey: next.lastActiveSessionKey?.trim() || next.sessionKey.trim() || "main",
@@ -72,6 +78,51 @@ export function applySettings(host: SettingsHost, next: UiSettings) {
   // Debounced push to gateway server (fire-and-forget)
   const client = (host as unknown as { client?: { request: unknown } | null }).client;
   schedulePrefSync(client as Parameters<typeof schedulePrefSync>[0], normalized);
+  // Sync project mutations to gateway server
+  if (client && prev.projects !== normalized.projects) {
+    syncProjectMutations(
+      client as Parameters<typeof pushProjectCreate>[0],
+      prev.projects,
+      normalized.projects,
+    );
+  }
+}
+
+/** Detect project create/update/delete and push to gateway (fire-and-forget). */
+function syncProjectMutations(
+  client: Parameters<typeof pushProjectCreate>[0],
+  prev: Project[],
+  next: Project[],
+): void {
+  const prevById = new Map(prev.map((p) => [p.id, p]));
+  const nextById = new Map(next.map((p) => [p.id, p]));
+
+  // Deleted projects
+  for (const [id] of prevById) {
+    if (!nextById.has(id)) {
+      void pushProjectDelete(client, id);
+    }
+  }
+
+  // Created or updated projects
+  for (const [id, project] of nextById) {
+    const old = prevById.get(id);
+    if (!old) {
+      // New project
+      void pushProjectCreate(client, project);
+    } else if (
+      old.name !== project.name ||
+      old.color !== project.color ||
+      old.sessionKeys !== project.sessionKeys
+    ) {
+      // Changed project
+      void pushProjectUpdate(client, id, {
+        name: project.name,
+        color: project.color,
+        sessionKeys: project.sessionKeys,
+      });
+    }
+  }
 }
 
 export function setLastActiveSessionKey(host: SettingsHost, next: string) {
