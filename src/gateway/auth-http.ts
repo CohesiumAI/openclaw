@@ -277,7 +277,7 @@ function handleLogout(req: IncomingMessage, res: ServerResponse): void {
     }
     deleteAuthSession(sessionId);
   }
-  clearSessionCookie(res);
+  clearSessionCookie(res, { secure: isSecureRequest(req) });
   sendJson(res, 200, { ok: true });
 }
 
@@ -292,7 +292,7 @@ function handleMe(req: IncomingMessage, res: ServerResponse): void {
   // Refresh sliding window on every /auth/me — proves user activity
   const session = refreshAuthSession(sessionId);
   if (!session) {
-    clearSessionCookie(res);
+    clearSessionCookie(res, { secure: isSecureRequest(req) });
     sendJson(res, 401, {
       error: { message: "Session expired", type: "session_expired" },
     });
@@ -321,7 +321,7 @@ function handleRefresh(req: IncomingMessage, res: ServerResponse): void {
   }
   const session = refreshAuthSession(sessionId);
   if (!session) {
-    clearSessionCookie(res);
+    clearSessionCookie(res, { secure: isSecureRequest(req) });
     sendJson(res, 401, {
       error: { message: "Session expired", type: "session_expired" },
     });
@@ -342,7 +342,7 @@ function handleRevokeAll(req: IncomingMessage, res: ServerResponse): void {
   }
   const session = getAuthSession(sessionId);
   if (!session) {
-    clearSessionCookie(res);
+    clearSessionCookie(res, { secure: isSecureRequest(req) });
     sendJson(res, 401, {
       error: { message: "Session expired", type: "session_expired" },
     });
@@ -350,7 +350,7 @@ function handleRevokeAll(req: IncomingMessage, res: ServerResponse): void {
   }
   const count = deleteUserSessions(session.username);
   audit("auth.revoke_all", session.username, "session", { revokedCount: count });
-  clearSessionCookie(res);
+  clearSessionCookie(res, { secure: isSecureRequest(req) });
   sendJson(res, 200, { ok: true, revokedCount: count });
 }
 

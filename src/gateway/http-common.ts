@@ -16,6 +16,7 @@ export function setDefaultSecurityHeaders(res: ServerResponse) {
 export function sendJson(res: ServerResponse, status: number, body: unknown) {
   res.statusCode = status;
   res.setHeader("Content-Type", "application/json; charset=utf-8");
+  res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate");
   res.end(JSON.stringify(body));
 }
 

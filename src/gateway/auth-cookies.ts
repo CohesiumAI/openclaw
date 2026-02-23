@@ -29,8 +29,12 @@ export function setSessionCookie(
 }
 
 /** Clear session cookie. */
-export function clearSessionCookie(res: ServerResponse): void {
+export function clearSessionCookie(res: ServerResponse, opts?: { secure?: boolean }): void {
+  const secure = opts?.secure !== false;
   const parts = [`${COOKIE_NAME}=`, "Path=/", "HttpOnly", "SameSite=Strict", "Max-Age=0"];
+  if (secure) {
+    parts.push("Secure");
+  }
   res.setHeader("Set-Cookie", parts.join("; "));
 }
 
