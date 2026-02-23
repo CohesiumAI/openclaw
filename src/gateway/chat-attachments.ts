@@ -273,7 +273,7 @@ export async function parseMessageWithAttachments(
       stripDataUrlPrefix: true,
       requireImageMime: false,
     });
-    validateAttachmentBase64OrThrow(normalized, { maxBytes });
+    const sizeBytes = validateAttachmentBase64OrThrow(normalized, { maxBytes });
     const { base64: b64, label, mime } = normalized;
 
     const providedMime = normalizeMime(mime);
