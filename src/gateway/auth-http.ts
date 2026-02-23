@@ -34,7 +34,7 @@ import {
   verifyTotp,
 } from "./auth-totp.js";
 import { sendJson } from "./http-common.js";
-import { resolveGatewayClientIp } from "./net.js";
+import { resolveClientIp } from "./net.js";
 import { createProgressiveRateLimiter } from "./rate-limiter.js";
 
 /** Dynamic check — covers users created after gateway start (setup wizard, CLI) and hybrid token+hashed setups. */
@@ -55,7 +55,7 @@ const recoveryLimiter = createProgressiveRateLimiter();
 
 function clientIpFromReq(req: IncomingMessage, trustedProxies?: string[]): string {
   return (
-    resolveGatewayClientIp({
+    resolveClientIp({
       remoteAddr: req.socket?.remoteAddress ?? "",
       forwardedFor: headerValue(req.headers["x-forwarded-for"]),
       realIp: headerValue(req.headers["x-real-ip"]),
