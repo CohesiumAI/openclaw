@@ -1718,23 +1718,24 @@ function renderContextMenu(state: AppViewState) {
     const pinnedNext = state.settings.pinnedSessionKeys.filter((k) => k !== targetKey);
     state.applySettings({ ...state.settings, projects: updated, pinnedSessionKeys: pinnedNext });
 
-    // Import existing image files from the active session's loaded messages
+    // Import existing image files from the session's messages into the project
     const app = state as unknown as {
       chatMessages: unknown[];
       sessionKey: string;
+      client: { request: <T>(method: string, params: unknown) => Promise<T> } | null;
       settings: typeof state.settings;
       applySettings: typeof state.applySettings;
     };
-    if (
-      app.sessionKey === targetKey &&
-      Array.isArray(app.chatMessages) &&
-      app.chatMessages.length > 0
-    ) {
+
+    const importFilesFromMessages = (messages: unknown[]) => {
+      if (!Array.isArray(messages) || messages.length === 0) {
+        return;
+      }
       const proj = state.settings.projects.find((p) => p.id === projectId);
       const existingIds = new Set(proj?.files.map((f) => f.id) ?? []);
       void import("./controllers/project-files.ts").then((m) =>
         m
-          .importChatFilesIntoProject(projectId, targetKey, app.chatMessages, existingIds)
+          .importChatFilesIntoProject(projectId, targetKey, messages, existingIds)
           .then((imported) => {
             if (imported.length > 0) {
               const latest = state.settings.projects.map((p) =>
@@ -1744,6 +1745,28 @@ function renderContextMenu(state: AppViewState) {
             }
           }),
       );
+    };
+
+    if (
+      app.sessionKey === targetKey &&
+      Array.isArray(app.chatMessages) &&
+      app.chatMessages.length > 0
+    ) {
+      // Active session — use in-memory messages
+      importFilesFromMessages(app.chatMessages);
+    } else if (app.client) {
+      // Non-active session — fetch history from gateway first
+      void app.client
+        .request<{ messages?: unknown[] }>("chat.history", {
+          sessionKey: targetKey,
+          limit: 200,
+        })
+        .then((res) => {
+          importFilesFromMessages(res?.messages ?? []);
+        })
+        .catch(() => {
+          // Best-effort — gateway may not have messages
+        });
     }
   };
 
