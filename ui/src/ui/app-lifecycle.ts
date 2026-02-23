@@ -123,8 +123,18 @@ async function checkAuthAndConnect(host: LifecycleHost) {
     connectGateway(host as unknown as Parameters<typeof connectGateway>[0]);
   } else if (result.status === "unauthenticated") {
     // Check if first-time setup is needed (no users created yet)
+    // or if we're in token mode (no login form needed)
     const caps = await fetchCapabilities(host.basePath);
-    host.authStatus = caps.needsSetup ? "needs-setup" : "unauthenticated";
+    if (caps.needsSetup) {
+      host.authStatus = "needs-setup";
+    } else if (caps.authMode === "token") {
+      // Token-mode gateways authenticate via WS handshake, not HTTP sessions.
+      // Skip the login form and connect directly.
+      host.authStatus = "no-auth";
+      connectGateway(host as unknown as Parameters<typeof connectGateway>[0]);
+    } else {
+      host.authStatus = "unauthenticated";
+    }
   } else {
     // Network error or 404 — no auth configured, connect directly
     host.authStatus = "no-auth";

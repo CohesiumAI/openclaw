@@ -200,7 +200,7 @@ export async function submitTotpBackup(
 /** Fetch gateway capabilities (feature flags). */
 export async function fetchCapabilities(
   basePath = "",
-): Promise<{ needsSetup?: boolean; hasUserManagement?: boolean; has2fa?: boolean }> {
+): Promise<{ needsSetup?: boolean; hasUserManagement?: boolean; has2fa?: boolean; authMode?: string }> {
   try {
     const res = await fetch(`${basePath}/auth/capabilities`, {
       credentials: "same-origin",
@@ -210,6 +210,7 @@ export async function fetchCapabilities(
         needsSetup?: boolean;
         hasUserManagement?: boolean;
         has2fa?: boolean;
+        authMode?: string;
       };
     }
     return {};
