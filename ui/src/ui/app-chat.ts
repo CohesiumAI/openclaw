@@ -387,6 +387,20 @@ export async function handleSendChat(
   // Capture files for the project if this chat belongs to one
   if (hasAttachments) {
     void captureProjectFiles(host, attachmentsToSend);
+    // Also persist to the session-scoped store so they survive page refresh
+    // and can be imported later if this chat is added to a project.
+    const sk = (host as unknown as OpenClawApp).sessionKey;
+    void import("./controllers/session-attachment-store.ts").then((m) =>
+      m.storeSessionAttachments(
+        sk,
+        attachmentsToSend.map((a) => ({
+          id: a.id,
+          fileName: a.fileName || "attachment",
+          mimeType: a.mimeType,
+          dataUrl: a.dataUrl,
+        })),
+      ),
+    );
   }
 
   await sendChatMessageNow(host, message, {

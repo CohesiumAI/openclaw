@@ -1718,7 +1718,10 @@ function renderContextMenu(state: AppViewState) {
     const pinnedNext = state.settings.pinnedSessionKeys.filter((k) => k !== targetKey);
     state.applySettings({ ...state.settings, projects: updated, pinnedSessionKeys: pinnedNext });
 
-    // Import existing image files from the session's messages into the project
+    // Import existing files from the session's messages into the project.
+    // Tier 1: in-memory messages (active session with _attachments)
+    // Tier 2: gateway chat.history (non-active session)
+    // Tier 3: IndexedDB session-attachment-store (always available after send)
     const app = state as unknown as {
       chatMessages: unknown[];
       sessionKey: string;
@@ -1727,10 +1730,7 @@ function renderContextMenu(state: AppViewState) {
       applySettings: typeof state.applySettings;
     };
 
-    const importFilesFromMessages = (messages: unknown[]) => {
-      if (!Array.isArray(messages) || messages.length === 0) {
-        return;
-      }
+    const doImport = (messages: unknown[]) => {
       const proj = state.settings.projects.find((p) => p.id === projectId);
       const existingIds = new Set(proj?.files.map((f) => f.id) ?? []);
       void import("./controllers/project-files.ts").then((m) =>
@@ -1742,8 +1742,48 @@ function renderContextMenu(state: AppViewState) {
                 p.id === projectId ? { ...p, files: [...p.files, ...imported] } : p,
               );
               state.applySettings({ ...state.settings, projects: latest });
+            } else {
+              // Messages didn't carry _attachments — fall back to session store
+              importFromSessionStore();
             }
           }),
+      );
+    };
+
+    const importFromSessionStore = () => {
+      void import("./controllers/session-attachment-store.ts").then((store) =>
+        store.getSessionAttachments(targetKey).then((storedAtts) => {
+          if (storedAtts.length === 0) {
+            return;
+          }
+          // Build synthetic messages with _attachments for importChatFilesIntoProject
+          const syntheticMessages = [
+            {
+              role: "user",
+              content: [],
+              _attachments: storedAtts.map((a) => ({
+                id: a.id,
+                fileName: a.fileName,
+                mimeType: a.mimeType,
+                dataUrl: a.dataUrl,
+              })),
+            },
+          ];
+          const proj = state.settings.projects.find((p) => p.id === projectId);
+          const existingIds = new Set(proj?.files.map((f) => f.id) ?? []);
+          void import("./controllers/project-files.ts").then((m) =>
+            m
+              .importChatFilesIntoProject(projectId, targetKey, syntheticMessages, existingIds)
+              .then((imported) => {
+                if (imported.length > 0) {
+                  const latest = state.settings.projects.map((p) =>
+                    p.id === projectId ? { ...p, files: [...p.files, ...imported] } : p,
+                  );
+                  state.applySettings({ ...state.settings, projects: latest });
+                }
+              }),
+          );
+        }),
       );
     };
 
@@ -1752,21 +1792,29 @@ function renderContextMenu(state: AppViewState) {
       Array.isArray(app.chatMessages) &&
       app.chatMessages.length > 0
     ) {
-      // Active session — use in-memory messages
-      importFilesFromMessages(app.chatMessages);
+      // Active session — use in-memory messages (best: has _attachments)
+      doImport(app.chatMessages);
     } else if (app.client) {
-      // Non-active session — fetch history from gateway first
+      // Non-active session — fetch history, then fall back to store
       void app.client
         .request<{ messages?: unknown[] }>("chat.history", {
           sessionKey: targetKey,
           limit: 200,
         })
         .then((res) => {
-          importFilesFromMessages(res?.messages ?? []);
+          const msgs = res?.messages ?? [];
+          if (msgs.length > 0) {
+            doImport(msgs);
+          } else {
+            importFromSessionStore();
+          }
         })
         .catch(() => {
-          // Best-effort — gateway may not have messages
+          importFromSessionStore();
         });
+    } else {
+      // No client — try session store directly
+      importFromSessionStore();
     }
   };
 
