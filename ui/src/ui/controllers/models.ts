@@ -1,18 +1,36 @@
 import type { GatewayBrowserClient } from "../gateway.ts";
-import type { ModelCatalogEntry } from "../types.ts";
 
-/**
- * Fetch the model catalog from the gateway.
- *
- * Accepts a {@link GatewayBrowserClient} (matching the existing ui/ controller
- * convention).  Returns an array of {@link ModelCatalogEntry}; on failure the
- * caller receives an empty array rather than throwing.
- */
-export async function loadModels(client: GatewayBrowserClient): Promise<ModelCatalogEntry[]> {
+export type ModelCatalogEntry = {
+  id: string;
+  name?: string;
+  provider?: string;
+  contextWindow?: number;
+};
+
+export type ModelsState = {
+  client: GatewayBrowserClient | null;
+  connected: boolean;
+  modelsLoading: boolean;
+  modelsCatalog: ModelCatalogEntry[];
+};
+
+/** Load model catalog from gateway via models.list */
+export async function loadModels(state: ModelsState) {
+  if (!state.client || !state.connected) {
+    return;
+  }
+  if (state.modelsLoading) {
+    return;
+  }
+  state.modelsLoading = true;
   try {
-    const result = await client.request<{ models: ModelCatalogEntry[] }>("models.list", {});
-    return result?.models ?? [];
+    const res = await state.client.request<{ models?: ModelCatalogEntry[] }>("models.list", {});
+    if (res?.models) {
+      state.modelsCatalog = res.models;
+    }
   } catch {
-    return [];
+    // Best-effort; model list is non-critical for basic chat
+  } finally {
+    state.modelsLoading = false;
   }
 }

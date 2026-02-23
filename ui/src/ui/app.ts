@@ -1,6 +1,35 @@
 import { LitElement } from "lit";
 import { customElement, state } from "lit/decorators.js";
-import { i18n, I18nController, isSupportedLocale } from "../i18n/index.ts";
+import type { EventLogEntry } from "./app-events.ts";
+import type { AppViewState, AuthStatus } from "./app-view-state.ts";
+import type { SlashCommandEntry } from "./controllers/chat-commands.ts";
+import type { DevicePairingList } from "./controllers/devices.ts";
+import type { ExecApprovalRequest } from "./controllers/exec-approval.ts";
+import type { ExecApprovalsFile, ExecApprovalsSnapshot } from "./controllers/exec-approvals.ts";
+import type { SkillMessage } from "./controllers/skills.ts";
+import type { GatewayBrowserClient, GatewayHelloOk } from "./gateway.ts";
+import type { Tab } from "./navigation.ts";
+import type { ResolvedTheme, ThemeMode } from "./theme.ts";
+import type {
+  AgentsListResult,
+  AgentsFilesListResult,
+  AgentIdentityResult,
+  ConfigSnapshot,
+  ConfigUiHints,
+  CronJob,
+  CronRunLogEntry,
+  CronStatus,
+  HealthSnapshot,
+  LogEntry,
+  LogLevel,
+  PresenceEntry,
+  ChannelsStatusSnapshot,
+  SessionsListResult,
+  SkillStatusReport,
+  StatusSummary,
+  NostrProfile,
+} from "./types.ts";
+import type { NostrProfileFormState } from "./views/channels.nostr-profile-form.ts";
 import {
   handleChannelConfigReload as handleChannelConfigReloadInternal,
   handleChannelConfigSave as handleChannelConfigSaveInternal,
@@ -16,11 +45,12 @@ import {
 } from "./app-channels.ts";
 import {
   handleAbortChat as handleAbortChatInternal,
+  handleNewSession as handleNewSessionInternal,
   handleSendChat as handleSendChatInternal,
+  refreshChatAvatar as refreshChatAvatarInternal,
   removeQueuedMessage as removeQueuedMessageInternal,
 } from "./app-chat.ts";
 import { DEFAULT_CRON_FORM, DEFAULT_LOG_LEVEL_FILTERS } from "./app-defaults.ts";
-import type { EventLogEntry } from "./app-events.ts";
 import { connectGateway as connectGatewayInternal } from "./app-gateway.ts";
 import {
   handleConnected,
@@ -48,41 +78,25 @@ import {
   resetToolStream as resetToolStreamInternal,
   type ToolStreamEntry,
   type CompactionStatus,
-  type FallbackStatus,
 } from "./app-tool-stream.ts";
-import type { AppViewState } from "./app-view-state.ts";
-import { normalizeAssistantIdentity } from "./assistant-identity.ts";
+import { resolveInjectedAssistantIdentity } from "./assistant-identity.ts";
+import { startSessionRefresh, stopSessionRefresh } from "./auth-refresh.ts";
+import {
+  changePassword,
+  login as authLogin,
+  logout as authLogout,
+  setupFirstUser,
+  setupTotp,
+  submitTotpBackup,
+  submitTotpChallenge,
+  verifyTotp,
+} from "./auth.ts";
 import { loadAssistantIdentity as loadAssistantIdentityInternal } from "./controllers/assistant-identity.ts";
-import type { DevicePairingList } from "./controllers/devices.ts";
-import type { ExecApprovalRequest } from "./controllers/exec-approval.ts";
-import type { ExecApprovalsFile, ExecApprovalsSnapshot } from "./controllers/exec-approvals.ts";
-import type { SkillMessage } from "./controllers/skills.ts";
-import type { GatewayBrowserClient, GatewayHelloOk } from "./gateway.ts";
-import type { Tab } from "./navigation.ts";
-import { loadSettings, type UiSettings } from "./storage.ts";
-import { VALID_THEMES, type ResolvedTheme, type ThemeMode } from "./theme.ts";
-import type {
-  AgentsListResult,
-  AgentsFilesListResult,
-  AgentIdentityResult,
-  ConfigSnapshot,
-  ConfigUiHints,
-  CronJob,
-  CronRunLogEntry,
-  CronStatus,
-  HealthSummary,
-  LogEntry,
-  LogLevel,
-  ModelCatalogEntry,
-  PresenceEntry,
-  ChannelsStatusSnapshot,
-  SessionsListResult,
-  SkillStatusReport,
-  StatusSummary,
-  NostrProfile,
-} from "./types.ts";
+import { loadChatHistory as loadChatHistoryInternal } from "./controllers/chat.ts";
+import { patchSession } from "./controllers/sessions.ts";
+import { createPrefillState, type PrefillState } from "./controllers/settings-prefill.ts";
+import { loadSettings, migrateSettings, type UiSettings } from "./storage.ts";
 import { type ChatAttachment, type ChatQueueItem, type CronFormState } from "./ui-types.ts";
-import type { NostrProfileFormState } from "./views/channels.nostr-profile-form.ts";
 
 declare global {
   interface Window {
@@ -90,7 +104,7 @@ declare global {
   }
 }
 
-const bootAssistantIdentity = normalizeAssistantIdentity({});
+const injectedAssistantIdentity = resolveInjectedAssistantIdentity();
 
 function resolveOnboardingMode(): boolean {
   if (!window.location.search) {
@@ -107,21 +121,43 @@ function resolveOnboardingMode(): boolean {
 
 @customElement("openclaw-app")
 export class OpenClawApp extends LitElement {
-  private i18nController = new I18nController(this);
-  @state() settings: UiSettings = loadSettings();
-  constructor() {
-    super();
-    if (isSupportedLocale(this.settings.locale)) {
-      void i18n.setLocale(this.settings.locale);
-    }
-  }
+  @state() settings: UiSettings = migrateSettings(loadSettings());
   @state() password = "";
   @state() tab: Tab = "chat";
   @state() onboarding = resolveOnboardingMode();
   @state() connected = false;
-  @state() theme: ThemeMode = this.settings.theme ?? "dark";
+  @state() authStatus: AuthStatus = "loading";
+  @state() authUser: { username: string; role: string } | null = null;
+  @state() loginUsername = "";
+  @state() loginPassword = "";
+  @state() loginError: string | null = null;
+  @state() loginLoading = false;
+  @state() totpChallengeSessionId: string | null = null;
+  @state() totpCode = "";
+  @state() totpError: string | null = null;
+  @state() totpLoading = false;
+  @state() totpBackupMode = false;
+  @state() setupUsername = "";
+  @state() setupPassword = "";
+  @state() setupPasswordConfirm = "";
+  @state() setupRecoveryCode = "";
+  @state() setupError: string | null = null;
+  @state() setupLoading = false;
+  @state() setupTotpStep: "prompt" | "qr" | "verify" | "backup-codes" = "prompt";
+  @state() setupTotpUri = "";
+  @state() setupTotpSecret = "";
+  @state() setupTotpCode = "";
+  @state() setupTotpError: string | null = null;
+  @state() setupTotpLoading = false;
+  @state() setupTotpBackupCodes: string[] = [];
+  @state() pwChangeCurrentPassword = "";
+  @state() pwChangeNewPassword = "";
+  @state() pwChangeNewPasswordConfirm = "";
+  @state() pwChangeError: string | null = null;
+  @state() pwChangeSuccess = false;
+  @state() pwChangeLoading = false;
+  @state() theme: ThemeMode = this.settings.theme ?? "system";
   @state() themeResolved: ResolvedTheme = "dark";
-  @state() themeOrder: ThemeMode[] = this.buildThemeOrder(this.theme);
   @state() hello: GatewayHelloOk | null = null;
   @state() lastError: string | null = null;
   @state() eventLog: EventLogEntry[] = [];
@@ -129,9 +165,9 @@ export class OpenClawApp extends LitElement {
   private toolStreamSyncTimer: number | null = null;
   private sidebarCloseTimer: number | null = null;
 
-  @state() assistantName = bootAssistantIdentity.name;
-  @state() assistantAvatar = bootAssistantIdentity.avatar;
-  @state() assistantAgentId = bootAssistantIdentity.agentId ?? null;
+  @state() assistantName = injectedAssistantIdentity.name;
+  @state() assistantAvatar = injectedAssistantIdentity.avatar;
+  @state() assistantAgentId = injectedAssistantIdentity.agentId ?? null;
 
   @state() sessionKey = this.settings.sessionKey;
   @state() chatLoading = false;
@@ -143,10 +179,17 @@ export class OpenClawApp extends LitElement {
   @state() chatStreamStartedAt: number | null = null;
   @state() chatRunId: string | null = null;
   @state() compactionStatus: CompactionStatus | null = null;
-  @state() fallbackStatus: FallbackStatus | null = null;
   @state() chatAvatarUrl: string | null = null;
   @state() chatThinkingLevel: string | null = null;
+  @state() chatActiveToolName: string | null = null;
+  @state() voiceListening = false;
+  @state() ttsPlaying = false;
   @state() chatQueue: ChatQueueItem[] = [];
+  /** Tracks active run state per session so we can restore messages + stream on switch-back */
+  activeRunState: Map<
+    string,
+    { runId: string; messages: unknown[]; stream: string | null; toolName: string | null }
+  > = new Map();
   @state() chatAttachments: ChatAttachment[] = [];
   @state() chatManualRefreshInFlight = false;
   // Sidebar state for tool output viewing
@@ -154,6 +197,46 @@ export class OpenClawApp extends LitElement {
   @state() sidebarContent: string | null = null;
   @state() sidebarError: string | null = null;
   @state() splitRatio = this.settings.splitRatio;
+
+  // Inline message editing state
+  @state() editingMessageIndex: number | null = null;
+  @state() editingMessageText = "";
+  @state() editingAttachments: ChatAttachment[] = [];
+
+  // V2: Session previews for sidebar
+  @state() sessionsPreview: Map<string, string> = new Map();
+  // V2: Model catalog for model selector
+  @state() modelsLoading = false;
+  @state() modelsCatalog: Array<{ id: string; name?: string; provider?: string }> = [];
+  @state() modelSelectorOpen = false;
+  @state() skillsPopoverOpen = false;
+  @state() chatsPopoverOpen = false;
+  // Slash command autocomplete
+  @state() chatCommands: SlashCommandEntry[] = [];
+  @state() slashPopoverOpen = false;
+  @state() slashPopoverIndex = 0;
+
+  // V2: Settings modal state
+  @state() settingsModalOpen = false;
+  @state() settingsPrefill: PrefillState = createPrefillState();
+  @state() settingsActiveCategory = "quick";
+  @state() settingsSearchQuery = "";
+  @state() archiveModalOpen = false;
+  @state() activeProjectId: string | null = null;
+  @state() projectModalOpen = false;
+  @state() projectModalEditId: string | null = null;
+  @state() searchModalOpen = false;
+  @state() searchQuery = "";
+  // V2: Context menu & confirmation modal
+  @state() contextMenuOpen = false;
+  @state() contextMenuTarget: string | null = null;
+  @state() contextMenuX = 0;
+  @state() contextMenuY = 0;
+  @state() confirmModalOpen = false;
+  @state() confirmModalTitle = "";
+  @state() confirmModalDesc = "";
+  @state() confirmModalOkLabel = "Delete";
+  @state() confirmModalAction: (() => void) | null = null;
 
   @state() nodesLoading = false;
   @state() nodes: Array<Record<string, unknown>> = [];
@@ -231,11 +314,12 @@ export class OpenClawApp extends LitElement {
   @state() agentSkillsError: string | null = null;
   @state() agentSkillsReport: SkillStatusReport | null = null;
   @state() agentSkillsAgentId: string | null = null;
-  @state() agentsSidebarFilter = "";
 
   @state() sessionsLoading = false;
   @state() sessionsResult: SessionsListResult | null = null;
   @state() sessionsError: string | null = null;
+  /** Optimistic labels awaiting gateway confirmation — survive loadSessions overwrites */
+  pendingLabels: Map<string, string> = new Map();
   @state() sessionsFilterActive = "";
   @state() sessionsFilterLimit = "120";
   @state() sessionsIncludeGlobal = true;
@@ -262,8 +346,6 @@ export class OpenClawApp extends LitElement {
   @state() usageTimeSeriesBreakdownMode: "total" | "by-type" = "by-type";
   @state() usageTimeSeries: import("./types.js").SessionUsageTimeSeries | null = null;
   @state() usageTimeSeriesLoading = false;
-  @state() usageTimeSeriesCursorStart: number | null = null;
-  @state() usageTimeSeriesCursorEnd: number | null = null;
   @state() usageSessionLogs: import("./views/usage.js").SessionLogEntry[] | null = null;
   @state() usageSessionLogsLoading = false;
   @state() usageSessionLogsExpanded = false;
@@ -305,25 +387,6 @@ export class OpenClawApp extends LitElement {
   @state() cronRuns: CronRunLogEntry[] = [];
   @state() cronBusy = false;
 
-  @state() updateAvailable: import("./types.js").UpdateAvailable | null = null;
-
-  // Overview dashboard state
-  @state() attentionItems: import("./types.js").AttentionItem[] = [];
-  @state() paletteOpen = false;
-  paletteQuery = "";
-  paletteActiveIndex = 0;
-  @state() streamMode = (() => {
-    try {
-      const stored = localStorage.getItem("openclaw:stream-mode");
-      // Default to true (redacted) unless explicitly disabled
-      return stored === null ? true : stored === "true";
-    } catch {
-      return true;
-    }
-  })();
-  @state() overviewLogLines: string[] = [];
-  @state() overviewLogCursor = 0;
-
   @state() skillsLoading = false;
   @state() skillsReport: SkillStatusReport | null = null;
   @state() skillsError: string | null = null;
@@ -331,15 +394,14 @@ export class OpenClawApp extends LitElement {
   @state() skillEdits: Record<string, string> = {};
   @state() skillsBusyKey: string | null = null;
   @state() skillMessages: Record<string, SkillMessage> = {};
-
-  @state() healthLoading = false;
-  @state() healthResult: HealthSummary | null = null;
-  @state() healthError: string | null = null;
+  // Per-session skill overrides: sessionKey → Set of enabled skill names.
+  // null = no override (all installed skills active); Set = only listed skills active.
+  @state() sessionSkillOverrides: Map<string, Set<string>> = new Map();
 
   @state() debugLoading = false;
   @state() debugStatus: StatusSummary | null = null;
-  @state() debugHealth: HealthSummary | null = null;
-  @state() debugModels: ModelCatalogEntry[] = [];
+  @state() debugHealth: HealthSnapshot | null = null;
+  @state() debugModels: unknown[] = [];
   @state() debugHeartbeat: unknown = null;
   @state() debugCallMethod = "";
   @state() debugCallParams = "{}";
@@ -378,6 +440,8 @@ export class OpenClawApp extends LitElement {
   basePath = "";
   private popStateHandler = () =>
     onPopStateInternal(this as unknown as Parameters<typeof onPopStateInternal>[0]);
+  private themeMedia: MediaQueryList | null = null;
+  private themeMediaHandler: ((event: MediaQueryListEvent) => void) | null = null;
   private topbarObserver: ResizeObserver | null = null;
 
   createRenderRoot() {
@@ -445,6 +509,278 @@ export class OpenClawApp extends LitElement {
     await loadAssistantIdentityInternal(this);
   }
 
+  async handleLogin() {
+    if (this.loginLoading) {
+      return;
+    }
+    this.loginLoading = true;
+    this.loginError = null;
+    const result = await authLogin(this.loginUsername, this.loginPassword, this.basePath);
+    this.loginLoading = false;
+    if (result.status === "authenticated") {
+      this.authStatus = "authenticated";
+      this.authUser = { username: result.user.username, role: result.user.role };
+      this.loginPassword = "";
+      this.loginError = null;
+      startSessionRefresh(this);
+      connectGatewayInternal(this as unknown as Parameters<typeof connectGatewayInternal>[0]);
+    } else if (result.status === "totp-required") {
+      this.authStatus = "totp-challenge";
+      this.totpChallengeSessionId = result.challengeSessionId;
+      this.loginPassword = "";
+      this.totpCode = "";
+      this.totpError = null;
+      this.totpBackupMode = false;
+    } else if (result.status === "error") {
+      this.loginError = result.message;
+    }
+  }
+
+  async handleTotpSubmit() {
+    if (this.totpLoading || !this.totpChallengeSessionId) {
+      return;
+    }
+    this.totpLoading = true;
+    this.totpError = null;
+    const code = this.totpCode.trim();
+    const result = this.totpBackupMode
+      ? await submitTotpBackup(this.totpChallengeSessionId, code, this.basePath)
+      : await submitTotpChallenge(this.totpChallengeSessionId, code, this.basePath);
+    this.totpLoading = false;
+    if (result.status === "authenticated") {
+      this.authStatus = "authenticated";
+      this.authUser = { username: result.user.username, role: result.user.role };
+      this.totpChallengeSessionId = null;
+      this.totpCode = "";
+      this.totpError = null;
+      startSessionRefresh(this);
+      connectGatewayInternal(this as unknown as Parameters<typeof connectGatewayInternal>[0]);
+    } else if (result.status === "error") {
+      this.totpError = result.message;
+    }
+  }
+
+  handleTotpBack() {
+    this.authStatus = "unauthenticated";
+    this.totpChallengeSessionId = null;
+    this.totpCode = "";
+    this.totpError = null;
+    this.totpBackupMode = false;
+  }
+
+  async handleSetup() {
+    if (this.setupLoading) {
+      return;
+    }
+    // Client-side validation
+    if (!this.setupUsername.trim()) {
+      this.setupError = "Username is required";
+      return;
+    }
+    if (this.setupPassword.length < 8) {
+      this.setupError = "Password must be at least 8 characters";
+      return;
+    }
+    if (this.setupPassword !== this.setupPasswordConfirm) {
+      this.setupError = "Passwords do not match";
+      return;
+    }
+    const rc = this.setupRecoveryCode.trim();
+    if (rc && !/^\d{8,16}$/.test(rc)) {
+      this.setupError = "Recovery code must be 8-16 digits";
+      return;
+    }
+    this.setupLoading = true;
+    this.setupError = null;
+    const result = await setupFirstUser(
+      {
+        username: this.setupUsername.trim(),
+        password: this.setupPassword,
+        recoveryCode: rc || undefined,
+      },
+      this.basePath,
+    );
+    this.setupLoading = false;
+    if (result.status === "authenticated") {
+      this.authUser = { username: result.user.username, role: result.user.role };
+      this.setupPassword = "";
+      this.setupPasswordConfirm = "";
+      this.setupRecoveryCode = "";
+      this.setupError = null;
+      // Transition to 2FA onboarding prompt instead of authenticated
+      this.authStatus = "setup-totp-prompt";
+      this.setupTotpStep = "prompt";
+      startSessionRefresh(this);
+    } else if (result.status === "error") {
+      this.setupError = result.message;
+    }
+  }
+
+  async handleSetupTotpInit() {
+    if (this.setupTotpLoading) {
+      return;
+    }
+    this.setupTotpLoading = true;
+    this.setupTotpError = null;
+    const result = await setupTotp(this.basePath);
+    this.setupTotpLoading = false;
+    if (result.ok && result.uri && result.secret) {
+      this.setupTotpUri = result.uri;
+      this.setupTotpSecret = result.secret;
+      this.setupTotpBackupCodes = result.backupCodes ?? [];
+      this.setupTotpStep = "qr";
+    } else {
+      this.setupTotpError = result.error ?? "Failed to start TOTP setup";
+    }
+  }
+
+  async handleSetupTotpVerify() {
+    if (this.setupTotpLoading) {
+      return;
+    }
+    this.setupTotpLoading = true;
+    this.setupTotpError = null;
+    const result = await verifyTotp(this.setupTotpCode.trim(), this.basePath);
+    this.setupTotpLoading = false;
+    if (result.ok) {
+      if (this.setupTotpBackupCodes.length > 0) {
+        this.setupTotpStep = "backup-codes";
+      } else {
+        this.authStatus = "authenticated";
+        connectGatewayInternal(this as unknown as Parameters<typeof connectGatewayInternal>[0]);
+      }
+    } else {
+      this.setupTotpError = result.error ?? "Invalid code";
+    }
+  }
+
+  handleSetupTotpSkip() {
+    this.authStatus = "authenticated";
+    connectGatewayInternal(this as unknown as Parameters<typeof connectGatewayInternal>[0]);
+  }
+
+  async handlePasswordChange() {
+    if (this.pwChangeLoading) {
+      return;
+    }
+    if (this.pwChangeNewPassword.length < 8) {
+      this.pwChangeError = "New password must be at least 8 characters";
+      return;
+    }
+    if (this.pwChangeNewPassword !== this.pwChangeNewPasswordConfirm) {
+      this.pwChangeError = "New passwords do not match";
+      return;
+    }
+    this.pwChangeLoading = true;
+    this.pwChangeError = null;
+    this.pwChangeSuccess = false;
+    const result = await changePassword(
+      this.pwChangeCurrentPassword,
+      this.pwChangeNewPassword,
+      this.basePath,
+    );
+    this.pwChangeLoading = false;
+    if (result.ok) {
+      this.pwChangeSuccess = true;
+      this.pwChangeCurrentPassword = "";
+      this.pwChangeNewPassword = "";
+      this.pwChangeNewPasswordConfirm = "";
+    } else {
+      this.pwChangeError = result.error ?? "Password change failed";
+    }
+  }
+
+  async handleLogout() {
+    stopSessionRefresh();
+    await authLogout(this.basePath);
+    this.client?.stop();
+    this.client = null;
+    this.connected = false;
+    this.hello = null;
+    this.authStatus = "unauthenticated";
+    this.authUser = null;
+    this.loginUsername = "";
+    this.loginPassword = "";
+    this.loginError = null;
+    this.totpChallengeSessionId = null;
+    this.totpCode = "";
+    this.totpError = null;
+  }
+
+  setPassword(next: string) {
+    this.password = next;
+  }
+
+  setSessionKey(next: string) {
+    if (next === this.sessionKey) {
+      return;
+    }
+    // Save full chat state for the session we're leaving so we can restore on switch-back
+    if (this.chatRunId) {
+      this.activeRunState.set(this.sessionKey, {
+        runId: this.chatRunId,
+        messages: this.chatMessages,
+        stream: this.chatStream,
+        toolName: this.chatActiveToolName,
+      });
+    }
+    this.sessionKey = next;
+    this.chatMessages = [];
+    this.chatMessage = "";
+    this.chatAttachments = [];
+    this.chatStream = null;
+    this.chatStreamStartedAt = null;
+    this.chatRunId = null;
+    this.chatQueue = [];
+    this.resetToolStream();
+    this.resetChatScroll();
+    this.applySettings({
+      ...this.settings,
+      sessionKey: next,
+      lastActiveSessionKey: next,
+    });
+    void this.loadAssistantIdentity();
+    void this._loadHistoryAndRestoreRun(next);
+    void refreshChatAvatarInternal(
+      this as unknown as Parameters<typeof refreshChatAvatarInternal>[0],
+    );
+  }
+
+  /** Load history then restore stream indicator if this session has an active run. */
+  private async _loadHistoryAndRestoreRun(sessionKey: string) {
+    const saved = this.activeRunState.get(sessionKey);
+    // Pre-populate with saved optimistic messages so mergeOptimisticImages
+    // can re-inject image/file blocks into the gateway-fetched messages.
+    if (saved && saved.messages.length > 0) {
+      this.chatMessages = saved.messages;
+    }
+    await loadChatHistoryInternal(this as unknown as Parameters<typeof loadChatHistoryInternal>[0]);
+    // If we switched away again during the async load, bail
+    if (this.sessionKey !== sessionKey) {
+      return;
+    }
+    if (saved && !this.chatRunId) {
+      // Only restore streaming state if the run is still active (non-empty runId).
+      // Cross-session terminal events clear runId to "" but keep messages.
+      if (saved.runId) {
+        // Gateway may not have stored the user message yet — use saved messages if they have more
+        if (saved.messages.length > this.chatMessages.length) {
+          this.chatMessages = saved.messages;
+        }
+        this.chatRunId = saved.runId;
+        this.chatStream = saved.stream ?? "";
+        this.chatStreamStartedAt = Date.now();
+        this.chatActiveToolName = saved.toolName;
+      }
+    }
+    // Consumed — clean up
+    this.activeRunState.delete(sessionKey);
+  }
+
+  setChatMessage(next: string) {
+    this.chatMessage = next;
+  }
+
   applySettings(next: UiSettings) {
     applySettingsInternal(this as unknown as Parameters<typeof applySettingsInternal>[0], next);
   }
@@ -455,19 +791,6 @@ export class OpenClawApp extends LitElement {
 
   setTheme(next: ThemeMode, context?: Parameters<typeof setThemeInternal>[2]) {
     setThemeInternal(this as unknown as Parameters<typeof setThemeInternal>[0], next, context);
-    this.themeOrder = this.buildThemeOrder(next);
-  }
-
-  buildThemeOrder(active: ThemeMode): ThemeMode[] {
-    const all = [...VALID_THEMES];
-    const rest = all.filter((id) => id !== active);
-    return [active, ...rest];
-  }
-
-  handleThemeToggleCollapse() {
-    setTimeout(() => {
-      this.themeOrder = this.buildThemeOrder(this.theme);
-    }, 80);
   }
 
   async loadOverview() {
@@ -486,6 +809,12 @@ export class OpenClawApp extends LitElement {
     removeQueuedMessageInternal(
       this as unknown as Parameters<typeof removeQueuedMessageInternal>[0],
       id,
+    );
+  }
+
+  async handleNewSession() {
+    await handleNewSessionInternal(
+      this as unknown as Parameters<typeof handleNewSessionInternal>[0],
     );
   }
 
@@ -612,6 +941,29 @@ export class OpenClawApp extends LitElement {
     const newRatio = Math.max(0.4, Math.min(0.7, ratio));
     this.splitRatio = newRatio;
     this.applySettings({ ...this.settings, splitRatio: newRatio });
+  }
+
+  /** Patch current session model via sessions.patch + optimistic UI update */
+  handleModelChange(modelId: string) {
+    if (!this.client || !this.connected || !this.sessionKey) {
+      return;
+    }
+    // Optimistic UI: split provider/model so resolveSessionModel reads correct values
+    const session = this.sessionsResult?.sessions?.find((s) => s.key === this.sessionKey);
+    if (session) {
+      const slashIdx = modelId.indexOf("/");
+      if (slashIdx > 0) {
+        session.modelProvider = modelId.slice(0, slashIdx);
+        session.model = modelId.slice(slashIdx + 1);
+      } else {
+        session.model = modelId;
+      }
+      this.sessionsResult = { ...this.sessionsResult! };
+    }
+    // Persist + reload (loadSessions confirms or corrects the optimistic value)
+    void patchSession(this as unknown as Parameters<typeof patchSession>[0], this.sessionKey, {
+      model: modelId,
+    });
   }
 
   render() {
