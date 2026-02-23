@@ -94,6 +94,17 @@ const BASE_METHODS = [
   "chat.send",
   "chat.commands",
   "chat.truncate",
+  // V2: user preferences and projects sync
+  "user.preferences.get",
+  "user.preferences.set",
+  "user.projects.list",
+  "user.projects.create",
+  "user.projects.update",
+  "user.projects.delete",
+  "user.projects.files.put",
+  "user.projects.files.get",
+  "user.projects.files.delete",
+  "user.sessions.revoke-all",
 ];
 
 export function listGatewayMethods(): string[] {

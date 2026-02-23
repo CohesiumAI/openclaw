@@ -20,6 +20,9 @@ import { nodeHandlers } from "./server-methods/nodes.js";
 import { pushHandlers } from "./server-methods/push.js";
 import { sendHandlers } from "./server-methods/send.js";
 import { sessionsHandlers } from "./server-methods/sessions.js";
+import { userPreferencesHandlers } from "./server-methods/user-preferences.js";
+import { userProjectsHandlers } from "./server-methods/user-projects.js";
+import { userSessionsHandlers } from "./server-methods/user-sessions.js";
 import { skillsHandlers } from "./server-methods/skills.js";
 import { systemHandlers } from "./server-methods/system.js";
 import { talkHandlers } from "./server-methods/talk.js";
@@ -88,6 +91,9 @@ export const coreGatewayHandlers: GatewayRequestHandlers = {
   ...agentHandlers,
   ...agentsHandlers,
   ...browserHandlers,
+  ...userPreferencesHandlers,
+  ...userProjectsHandlers,
+  ...userSessionsHandlers,
 };
 
 export async function handleGatewayRequest(
