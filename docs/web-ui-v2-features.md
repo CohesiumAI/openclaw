@@ -189,7 +189,17 @@ Full CLI-style management from the chat input:
 
 ### 9.5 Optimistic Merge
 
-- After `chat.history` reload, image/file content blocks from local (optimistic) messages are re-injected into server-fetched messages via text-matching merge logic. This ensures attachments remain visible even though the gateway transcript stores them separately.
+- After `chat.history` reload, image/file content blocks from local (optimistic) messages are re-injected into server-fetched messages via text-matching merge logic.
+- When optimistic messages are unavailable (e.g., after page refresh), the UI falls back to the server-side session attachment store (see §9.6).
+
+### 9.6 Server-Side Attachment Persistence
+
+- All file attachments are stored server-side at `~/.openclaw/session-attachments/<sessionId>/<fileId>` with a `meta.json` metadata index per session.
+- On send, each attachment is persisted to the server via `chat.files.put` (fire-and-forget).
+- On `chat.history` reload (after page refresh or gateway reboot), the UI calls `chat.files.list` + `chat.files.get` to restore attachment binary data and re-inject `_attachments` + image/file content blocks into messages.
+- On session deletion, `sessions.delete` automatically removes all associated attachment files.
+- **Limits**: 200 files per session, 25 MB max per file.
+- This replaces the previous IndexedDB-only approach (`session-attachment-store.ts`, now removed).
 
 ---
 
@@ -552,18 +562,22 @@ Sessions survive gateway restarts via an encrypted disk store:
 
 ### 23.2 WS Methods
 
-| Method                       | Scope | Description                          |
-| ---------------------------- | ----- | ------------------------------------ |
-| `user.preferences.get`       | read  | Fetch preferences for current user   |
-| `user.preferences.set`       | write | Merge-patch preferences              |
-| `user.projects.list`         | read  | List all projects                    |
-| `user.projects.create`       | write | Create a project                     |
-| `user.projects.update`       | write | Update project name/color/sessions   |
-| `user.projects.delete`       | write | Delete project + cleanup files       |
-| `user.projects.files.get`    | read  | Retrieve a project file (dataUrl)    |
-| `user.projects.files.put`    | write | Store a project file                 |
-| `user.projects.files.delete` | write | Remove project files by IDs          |
-| `user.sessions.revoke-all`   | write | Revoke all sessions for current user |
+| Method                       | Scope | Description                                  |
+| ---------------------------- | ----- | -------------------------------------------- |
+| `user.preferences.get`       | read  | Fetch preferences for current user           |
+| `user.preferences.set`       | write | Merge-patch preferences                      |
+| `user.projects.list`         | read  | List all projects                            |
+| `user.projects.create`       | write | Create a project                             |
+| `user.projects.update`       | write | Update project name/color/sessions           |
+| `user.projects.delete`       | write | Delete project + cleanup files               |
+| `user.projects.files.get`    | read  | Retrieve a project file (dataUrl)            |
+| `user.projects.files.put`    | write | Store a project file                         |
+| `user.projects.files.delete` | write | Remove project files by IDs                  |
+| `user.sessions.revoke-all`   | write | Revoke all sessions for current user         |
+| `chat.files.put`             | write | Store a session attachment (dataUrl)          |
+| `chat.files.list`            | read  | List attachment metadata for a session        |
+| `chat.files.get`             | read  | Retrieve a session attachment (dataUrl)       |
+| `chat.files.delete`          | write | Remove session attachments by IDs             |
 
 ### 23.3 Preferences Sync Flow
 

@@ -468,3 +468,40 @@ Updated feature documentation with 5 new sections (§21–25) and updates to 6 e
 - All init modules wrapped in try/catch (fail-open) — gateway never fails to start.
 - New config fields optional with safe defaults.
 - 11 new test files covering rate limiter, audit logging, TLS generation, TOTP, and backup codes.
+
+---
+
+## `4a599b931` — 2026-02-24
+
+### feat: server-side session attachment persistence (`chat.files.*`)
+
+File attachments (images, PDFs, binary files) sent in chat now persist server-side across gateway reboots. Previously, attachment binary data was only held in-memory on the UI via optimistic messages and was lost on page refresh or gateway restart.
+
+#### New gateway module: `session-attachments.ts`
+
+- Per-session file storage at `~/.openclaw/session-attachments/<sessionId>/<fileId>`.
+- Metadata index in `meta.json` per session.
+- Limits: 200 files per session, 25 MB max per file.
+- CRUD: `putSessionAttachment`, `listSessionAttachments`, `getSessionAttachment`, `removeSessionAttachments`, `removeAllSessionAttachments`.
+
+#### New WS methods: `chat.files.*`
+
+| Method             | Description                               |
+| ------------------ | ----------------------------------------- |
+| `chat.files.put`   | Store attachment binary data + metadata   |
+| `chat.files.list`  | List attachment metadata for a session    |
+| `chat.files.get`   | Retrieve attachment binary data by ID     |
+| `chat.files.delete`| Remove specific attachments by IDs        |
+
+#### UI changes
+
+- **`app-chat.ts`**: on send, calls `chat.files.put` for each attachment (fire-and-forget).
+- **`controllers/chat.ts`**: `loadChatHistory()` calls `chat.files.list` + `chat.files.get` to restore attachments after page refresh or gateway reboot.
+- **`app-render.ts`**: project import (`addToProject`) uses server-side attachment store instead of IndexedDB.
+- **Removed**: `controllers/session-attachment-store.ts` (IndexedDB client-side store) — replaced by server-side storage.
+
+#### Cleanup
+
+- **`sessions.ts`**: `sessions.delete` handler calls `removeAllSessionAttachments` to clean up attachment files on chat deletion.
+- **`server-methods-list.ts`**: added 4 new methods to `BASE_METHODS`.
+- **`server-methods.ts`**: registered `chatFilesHandlers`.
