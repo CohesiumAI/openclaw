@@ -105,6 +105,11 @@ const BASE_METHODS = [
   "user.projects.files.get",
   "user.projects.files.delete",
   "user.sessions.revoke-all",
+  // V2: per-session chat file attachments
+  "chat.files.put",
+  "chat.files.list",
+  "chat.files.get",
+  "chat.files.delete",
 ];
 
 export function listGatewayMethods(): string[] {

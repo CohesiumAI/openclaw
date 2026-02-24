@@ -182,42 +182,70 @@ function mergeOptimisticImages(optimistic: unknown[], fetched: unknown[]): unkno
 }
 
 /**
- * Restore attachment data from the persistent session-attachment-store.
+ * Restore attachment data from the server-side session attachment store.
  * After page refresh, optimistic `_attachments` and image content blocks
- * are lost. This function reads stored attachments from IndexedDB and
- * re-injects them into gateway-fetched messages.
+ * are lost. This function reads stored attachments via `chat.files.list`
+ * + `chat.files.get` WS methods and re-injects them into gateway-fetched messages.
  */
 async function restoreAttachmentsFromStore(
+  client: { request: <T>(method: string, params: unknown) => Promise<T> },
   sessionKey: string,
   messages: unknown[],
 ): Promise<unknown[]> {
   try {
-    const { getSessionAttachments } = await import("./session-attachment-store.ts");
-    const stored = await getSessionAttachments(sessionKey);
+    // Fetch metadata for all stored attachments
+    const listRes = await client.request<{ files?: Array<{ id: string; fileName: string; mimeType: string }> }>(
+      "chat.files.list",
+      { sessionKey },
+    );
+    const fileMetas = listRes?.files ?? [];
+    if (fileMetas.length === 0) {
+      return messages;
+    }
+    // Fetch binary data for all attachments in parallel
+    const fileDataResults = await Promise.allSettled(
+      fileMetas.map((f) =>
+        client.request<{ dataUrl: string; fileName: string; mimeType: string }>(
+          "chat.files.get",
+          { sessionKey, fileId: f.id },
+        ),
+      ),
+    );
+    type StoredAtt = { id: string; fileName: string; mimeType: string; dataUrl: string };
+    const stored: StoredAtt[] = [];
+    for (let i = 0; i < fileMetas.length; i++) {
+      const result = fileDataResults[i];
+      if (result.status === "fulfilled" && result.value?.dataUrl) {
+        stored.push({
+          id: fileMetas[i].id,
+          fileName: result.value.fileName || fileMetas[i].fileName,
+          mimeType: result.value.mimeType || fileMetas[i].mimeType,
+          dataUrl: result.value.dataUrl,
+        });
+      }
+    }
     if (stored.length === 0) {
       return messages;
     }
     // Group stored attachments by fileName for matching
-    const attsByName = new Map<string, typeof stored>();
+    const attsByName = new Map<string, StoredAtt[]>();
     for (const att of stored) {
       const key = att.fileName.toLowerCase();
       const arr = attsByName.get(key) ?? [];
       arr.push(att);
       attsByName.set(key, arr);
     }
-    // Also prepare a full list for fallback matching via text markers
-    const allAtts = [...stored];
 
     return messages.map((msg) => {
       const m = msg as Record<string, unknown>;
       if (m.role !== "user") {
         return msg;
       }
-      // Skip if already has _attachments (from merge)
+      // Skip if already has _attachments (from optimistic merge)
       if (Array.isArray(m._attachments) && m._attachments.length > 0) {
         return msg;
       }
-      // Check if the message text contains file/image attachment markers
+      // Extract text from the message
       const content = m.content;
       let text = "";
       if (typeof content === "string") {
@@ -230,7 +258,7 @@ async function restoreAttachmentsFromStore(
       }
       // Look for [Image attached: filename] or [File attached: filename] markers
       const markerRe = /\[(Image|File)\s+attached:\s*([^\]]+)\]/gi;
-      const matched: typeof stored = [];
+      const matched: StoredAtt[] = [];
       const usedIds = new Set<string>();
       let markerMatch: RegExpExecArray | null;
       while ((markerMatch = markerRe.exec(text)) !== null) {
@@ -247,14 +275,12 @@ async function restoreAttachmentsFromStore(
         }
       }
       // Fallback: if no markers matched but message has no images and store has data
-      if (matched.length === 0 && allAtts.length > 0) {
-        // Check if any content block already has image type
+      if (matched.length === 0) {
         const hasImageBlocks =
           Array.isArray(content) &&
           content.some((b) => (b as Record<string, unknown>).type === "image");
         if (!hasImageBlocks) {
-          // Use all stored attachments for this session (best-effort)
-          for (const a of allAtts) {
+          for (const a of stored) {
             if (!usedIds.has(a.id)) {
               matched.push(a);
               usedIds.add(a.id);
@@ -265,7 +291,7 @@ async function restoreAttachmentsFromStore(
       if (matched.length === 0) {
         return msg;
       }
-      // Re-inject _attachments and image content blocks
+      // Re-inject _attachments and image/file content blocks
       const attachments = matched.map((a) => ({
         id: a.id,
         fileName: a.fileName,
@@ -336,7 +362,7 @@ export async function loadChatHistory(state: ChatState) {
       // After page refresh, optimistic messages are gone (state.chatMessages=[]).
       // Restore attachment data from the persistent session-attachment-store.
       if (state.chatMessages.length === 0 && merged.length > 0) {
-        merged = await restoreAttachmentsFromStore(sessionAtStart, merged);
+        merged = await restoreAttachmentsFromStore(state.client, sessionAtStart, merged);
       }
       state.chatMessages = merged;
     }

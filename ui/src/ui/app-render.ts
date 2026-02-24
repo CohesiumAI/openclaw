@@ -1721,7 +1721,7 @@ function renderContextMenu(state: AppViewState) {
     // Import existing files from the session's messages into the project.
     // Tier 1: in-memory messages (active session with _attachments)
     // Tier 2: gateway chat.history (non-active session)
-    // Tier 3: IndexedDB session-attachment-store (always available after send)
+    // Tier 3: Server-side session attachment store (always available after send)
     const app = state as unknown as {
       chatMessages: unknown[];
       sessionKey: string;
@@ -1751,8 +1751,40 @@ function renderContextMenu(state: AppViewState) {
     };
 
     const importFromSessionStore = () => {
-      void import("./controllers/session-attachment-store.ts").then((store) =>
-        store.getSessionAttachments(targetKey).then((storedAtts) => {
+      if (!app.client) {
+        return;
+      }
+      void app.client
+        .request<{ files?: Array<{ id: string; fileName: string; mimeType: string }> }>(
+          "chat.files.list",
+          { sessionKey: targetKey },
+        )
+        .then(async (listRes) => {
+          const fileMetas = listRes?.files ?? [];
+          if (fileMetas.length === 0) {
+            return;
+          }
+          // Fetch binary data for each file
+          const fileDataResults = await Promise.allSettled(
+            fileMetas.map((f) =>
+              app.client!.request<{ dataUrl: string; fileName: string; mimeType: string }>(
+                "chat.files.get",
+                { sessionKey: targetKey, fileId: f.id },
+              ),
+            ),
+          );
+          const storedAtts: Array<{ id: string; fileName: string; mimeType: string; dataUrl: string }> = [];
+          for (let i = 0; i < fileMetas.length; i++) {
+            const result = fileDataResults[i];
+            if (result.status === "fulfilled" && result.value?.dataUrl) {
+              storedAtts.push({
+                id: fileMetas[i].id,
+                fileName: result.value.fileName || fileMetas[i].fileName,
+                mimeType: result.value.mimeType || fileMetas[i].mimeType,
+                dataUrl: result.value.dataUrl,
+              });
+            }
+          }
           if (storedAtts.length === 0) {
             return;
           }
@@ -1761,30 +1793,28 @@ function renderContextMenu(state: AppViewState) {
             {
               role: "user",
               content: [],
-              _attachments: storedAtts.map((a) => ({
-                id: a.id,
-                fileName: a.fileName,
-                mimeType: a.mimeType,
-                dataUrl: a.dataUrl,
-              })),
+              _attachments: storedAtts,
             },
           ];
           const proj = state.settings.projects.find((p) => p.id === projectId);
           const existingIds = new Set(proj?.files.map((f) => f.id) ?? []);
-          void import("./controllers/project-files.ts").then((m) =>
-            m
-              .importChatFilesIntoProject(projectId, targetKey, syntheticMessages, existingIds)
-              .then((imported) => {
-                if (imported.length > 0) {
-                  const latest = state.settings.projects.map((p) =>
-                    p.id === projectId ? { ...p, files: [...p.files, ...imported] } : p,
-                  );
-                  state.applySettings({ ...state.settings, projects: latest });
-                }
-              }),
+          const m = await import("./controllers/project-files.ts");
+          const imported = await m.importChatFilesIntoProject(
+            projectId,
+            targetKey,
+            syntheticMessages,
+            existingIds,
           );
-        }),
-      );
+          if (imported.length > 0) {
+            const latest = state.settings.projects.map((p) =>
+              p.id === projectId ? { ...p, files: [...p.files, ...imported] } : p,
+            );
+            state.applySettings({ ...state.settings, projects: latest });
+          }
+        })
+        .catch(() => {
+          // Best-effort
+        });
     };
 
     if (

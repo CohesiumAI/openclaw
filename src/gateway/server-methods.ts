@@ -22,6 +22,7 @@ import { sendHandlers } from "./server-methods/send.js";
 import { sessionsHandlers } from "./server-methods/sessions.js";
 import { userPreferencesHandlers } from "./server-methods/user-preferences.js";
 import { userProjectsHandlers } from "./server-methods/user-projects.js";
+import { chatFilesHandlers } from "./server-methods/chat-files.js";
 import { userSessionsHandlers } from "./server-methods/user-sessions.js";
 import { skillsHandlers } from "./server-methods/skills.js";
 import { systemHandlers } from "./server-methods/system.js";
@@ -93,6 +94,7 @@ export const coreGatewayHandlers: GatewayRequestHandlers = {
   ...browserHandlers,
   ...userPreferencesHandlers,
   ...userProjectsHandlers,
+  ...chatFilesHandlers,
   ...userSessionsHandlers,
 };
 

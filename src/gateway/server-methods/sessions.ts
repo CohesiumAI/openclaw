@@ -471,6 +471,15 @@ export const sessionsHandlers: GatewayRequestHandlers = {
         reason: "session-delete",
         emitHooks: emitLifecycleHooks,
       });
+      // Clean up server-side session attachments
+      if (sessionId) {
+        try {
+          const { removeAllSessionAttachments } = await import("../session-attachments.js");
+          removeAllSessionAttachments(sessionId);
+        } catch {
+          // Best-effort cleanup
+        }
+      }
     }
 
     respond(true, { ok: true, key: target.canonicalKey, deleted, archived }, undefined);
