@@ -505,3 +505,26 @@ File attachments (images, PDFs, binary files) sent in chat now persist server-si
 - **`sessions.ts`**: `sessions.delete` handler calls `removeAllSessionAttachments` to clean up attachment files on chat deletion.
 - **`server-methods-list.ts`**: added 4 new methods to `BASE_METHODS`.
 - **`server-methods.ts`**: registered `chatFilesHandlers`.
+
+---
+
+## `7a1a8ba93` — 2026-02-24
+
+### docs: update UI changelog and features doc with `chat.files.*`
+
+- **`UI_changelog.md`**: added changelog entry for `4a599b931` (server-side attachment persistence).
+- **`web-ui-v2-features.md`**: updated §9.5 Optimistic Merge, added §9.6 Server-Side Attachment Persistence, added 4 `chat.files.*` methods to §23.2 WS Methods table.
+
+---
+
+## `deb9261e0` — 2026-02-24
+
+### docs: fix 5 inaccuracies in `web-ui-v2-features.md` found during audit
+
+Systematic verification of every documented feature against the code. Corrections:
+
+1. **§17 Settings table**: added missing `theme` setting (synced via `preferences-sync.ts`). Added clarification note that `projects` use a separate sync mechanism (`projects-sync.ts`).
+2. **§21.2 Auth endpoints**: added 3 missing endpoints — `/auth/reset-password`, `/auth/setup`, `/auth/change-password`.
+3. **§22.1 CSP**: fixed `connect-src` from `'self'` to `'self' ws: wss:`. Added missing directives: `base-uri 'none'`, `object-src 'none'`, `img-src 'self' data: https:`, `font-src 'self'`.
+4. **§22.14 Summary**: corrected CSP from `script-src 'nonce-...'` to `script-src 'self'` (matches `control-ui-csp.ts`).
+5. **§22.10 Limits**: added session attachment limits — `Files per session: 200`, `File data size (session): 35 MB`.
