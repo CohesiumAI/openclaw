@@ -295,22 +295,25 @@ Full CLI-style management from the chat input:
 
 V2 persists settings in `localStorage` under `openclaw.control.settings.v1`. When the user is authenticated via the gateway, a subset of settings is **synced server-side** for cross-browser access.
 
-| Setting                 | Type      | Default | Synced | Description                                |
-| ----------------------- | --------- | ------- | ------ | ------------------------------------------ |
-| `splitRatio`            | number    | 0.6     | Yes    | Sidebar split ratio (0.2–0.9)              |
-| `navCollapsed`          | boolean   | false   | Yes    | Collapsible sidebar state                  |
-| `navGroupsCollapsed`    | Record    | {}      | Yes    | Per-group collapsed state (e.g., "pinned") |
-| `showDefaultWebSession` | boolean   | false   | Yes    | Show auto-created web session in sidebar   |
-| `sessionsActiveMinutes` | number    | 0       | Yes    | Sidebar filter: 0=all, >0=recent N minutes |
-| `ttsAutoPlay`           | boolean   | false   | Yes    | Auto-play TTS on responses                 |
-| `maxAttachmentMb`       | number    | 25      | Yes    | Max file attachment size (capped at 500)   |
-| `pinnedSessionKeys`     | string[]  | []      | Yes    | User-pinned sessions (max 1000)            |
-| `archivedSessionKeys`   | string[]  | []      | Yes    | Archived sessions (max 5000)               |
-| `projects`              | Project[] | []      | Yes    | User-created project groups (max 100)      |
-| `chatFocusMode`         | boolean   | false   | Yes    | Focus mode for chat                        |
-| `chatShowThinking`      | boolean   | false   | Yes    | Show model thinking blocks                 |
-| `chatStreamResponses`   | boolean   | true    | Yes    | Stream responses in real-time              |
-| `chatRenderMarkdown`    | boolean   | true    | Yes    | Render markdown in messages                |
+| Setting                 | Type      | Default    | Synced | Description                                |
+| ----------------------- | --------- | ---------- | ------ | ------------------------------------------ |
+| `theme`                 | string    | `"system"` | Yes    | Dark/light/system theme preference         |
+| `splitRatio`            | number    | 0.6        | Yes    | Sidebar split ratio (0.2–0.9)              |
+| `navCollapsed`          | boolean   | false      | Yes    | Collapsible sidebar state                  |
+| `navGroupsCollapsed`    | Record    | {}         | Yes    | Per-group collapsed state (e.g., "pinned") |
+| `showDefaultWebSession` | boolean   | false      | Yes    | Show auto-created web session in sidebar   |
+| `sessionsActiveMinutes` | number    | 0          | Yes    | Sidebar filter: 0=all, >0=recent N minutes |
+| `ttsAutoPlay`           | boolean   | false      | Yes    | Auto-play TTS on responses                 |
+| `maxAttachmentMb`       | number    | 25         | Yes    | Max file attachment size (capped at 500)   |
+| `pinnedSessionKeys`     | string[]  | []         | Yes    | User-pinned sessions (max 1000)            |
+| `archivedSessionKeys`   | string[]  | []         | Yes    | Archived sessions (max 5000)               |
+| `projects`              | Project[] | []         | Yes*   | User-created project groups (max 100)      |
+| `chatFocusMode`         | boolean   | false      | Yes    | Focus mode for chat                        |
+| `chatShowThinking`      | boolean   | false      | Yes    | Show model thinking blocks                 |
+| `chatStreamResponses`   | boolean   | true       | Yes    | Stream responses in real-time              |
+| `chatRenderMarkdown`    | boolean   | true       | Yes    | Render markdown in messages                |
+
+> **Note**: `projects` are synced via a separate `projects-sync.ts` module (not `preferences-sync.ts`), using dedicated `user.projects.*` WS methods.
 
 ### 17.1 Sync Mechanism
 
@@ -378,13 +381,16 @@ V2 persists settings in `localStorage` under `openclaw.control.settings.v1`. Whe
 
 ### 21.2 HTTP Auth Endpoints
 
-| Endpoint           | Method | Description                                       |
-| ------------------ | ------ | ------------------------------------------------- |
-| `/auth/login`      | POST   | Authenticate with username + password             |
-| `/auth/logout`     | POST   | Clear session cookie                              |
-| `/auth/me`         | GET    | Check current session (returns user + CSRF token) |
-| `/auth/refresh`    | POST   | Sliding window session renewal                    |
-| `/auth/revoke-all` | POST   | Revoke all sessions for the current user          |
+| Endpoint                | Method | Description                                       |
+| ----------------------- | ------ | ------------------------------------------------- |
+| `/auth/login`           | POST   | Authenticate with username + password             |
+| `/auth/logout`          | POST   | Clear session cookie                              |
+| `/auth/me`              | GET    | Check current session (returns user + CSRF token) |
+| `/auth/refresh`         | POST   | Sliding window session renewal                    |
+| `/auth/revoke-all`      | POST   | Revoke all sessions for the current user          |
+| `/auth/reset-password`  | POST   | Reset password using recovery code                |
+| `/auth/setup`           | POST   | First-time admin account creation                 |
+| `/auth/change-password` | POST   | Change password for authenticated user            |
 
 ### 21.3 Session Management
 
@@ -424,8 +430,9 @@ openclaw user revoke    # Revoke all active sessions for a user
 ### 22.1 Content Security Policy (CSP)
 
 - Strict CSP headers on all gateway HTTP responses.
-- `default-src 'self'`, `script-src 'self'`, `style-src 'self' 'unsafe-inline'`, `connect-src 'self'`.
-- `frame-ancestors 'none'` (equivalent to `X-Frame-Options: DENY`).
+- `default-src 'self'`, `script-src 'self'`, `style-src 'self' 'unsafe-inline'`, `connect-src 'self' ws: wss:`.
+- `base-uri 'none'`, `object-src 'none'`, `frame-ancestors 'none'`.
+- `img-src 'self' data: https:`, `font-src 'self'`.
 - Prevents inline script injection (XSS) and clickjacking.
 
 ### 22.2 HSTS
@@ -484,15 +491,17 @@ Server-side validation on all user-data endpoints:
 | Project IDs / File IDs  | Regex `^[a-zA-Z0-9][a-zA-Z0-9_-]{0,63}$` |
 | Projects per user       | 100                                      |
 | Files per project       | 500                                      |
-| File data size          | 35 MB                                    |
-| Project name            | 200 chars                                |
-| File name               | 255 chars                                |
-| Pinned sessions         | 1000 entries, 200 chars each             |
-| Archived sessions       | 5000 entries, 200 chars each             |
-| `maxAttachmentMb`       | 1–500                                    |
-| `sessionsActiveMinutes` | 0–525,600 (1 year)                       |
-| `navGroupsCollapsed`    | Values must be booleans                  |
-| Username (filesystem)   | Sanitized to `[a-z0-9_-]` only           |
+| File data size (project) | 35 MB                                   |
+| File data size (session) | 35 MB                                   |
+| Files per session        | 200                                     |
+| Project name             | 200 chars                               |
+| File name                | 255 chars                               |
+| Pinned sessions          | 1000 entries, 200 chars each            |
+| Archived sessions        | 5000 entries, 200 chars each            |
+| `maxAttachmentMb`        | 1–500                                   |
+| `sessionsActiveMinutes`  | 0–525,600 (1 year)                      |
+| `navGroupsCollapsed`     | Values must be booleans                 |
+| Username (filesystem)    | Sanitized to `[a-z0-9_-]` only          |
 
 ### 22.11 Credential Encryption at Rest
 
@@ -528,7 +537,7 @@ Sessions survive gateway restarts via an encrypted disk store:
 | **Authentication**    | Scrypt password hashing, timing-safe comparison                          | Constant-time verify prevents user-enumeration oracle                                       |
 | **Sessions**          | 30-min sliding TTL, encrypted persistence, per-session CSRF              | AES-256-GCM at rest; CSRF token bound to each session                                       |
 | **Authorization**     | RBAC (admin/operator/read-only), scope-based WS methods                  | Default-deny: empty scopes = no permissions                                                 |
-| **Headers**           | CSP (nonce), X-Frame-Options, X-Content-Type-Options, Permissions-Policy | `script-src 'nonce-...'`; `connect-src 'self' ws: wss:`; `frame-ancestors 'none'`           |
+| **Headers**           | CSP, X-Frame-Options, X-Content-Type-Options, Permissions-Policy         | `script-src 'self'`; `connect-src 'self' ws: wss:`; `frame-ancestors 'none'`                |
 | **WebSocket**         | Pre-auth gate, Origin validation, handshake timeout                      | Non-local WS upgrades rejected without session cookie                                       |
 | **Rate limiting**     | Progressive cooldown (3→30s, 6→1min, 9→5min, 12+→15min)                  | Double-keyed (IP + username) for login and recovery; auto-reset on success                  |
 | **Input validation**  | Regex IDs, size caps, type checks                                        | Projects/files/sessions all server-validated                                                |
