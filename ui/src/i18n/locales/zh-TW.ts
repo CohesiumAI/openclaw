@@ -2,6 +2,7 @@ import type { TranslationMap } from "../lib/types.ts";
 
 export const zh_TW: TranslationMap = {
   common: {
+    version: "版本",
     health: "健康狀況",
     ok: "正常",
     offline: "離線",
@@ -12,7 +13,6 @@ export const zh_TW: TranslationMap = {
     na: "不適用",
     docs: "文檔",
     resources: "資源",
-    search: "搜尋",
   },
   nav: {
     chat: "聊天",
@@ -95,51 +95,15 @@ export const zh_TW: TranslationMap = {
       required: "此網關需要身份驗證。添加令牌或密碼，然後點擊連接。",
       failed: "身份驗證失敗。請使用 {command} 重新複製令牌化 URL，或更新令牌，然後點擊連接。",
     },
+    pairing: {
+      hint: "此裝置需要閘道主機的配對批准。",
+      mobileHint:
+        "在手機上？從桌面執行 openclaw dashboard --no-open 複製完整 URL（包括 #token=...）。",
+    },
     insecure: {
       hint: "此頁面為 HTTP，因此瀏覽器阻止設備標識。請使用 HTTPS (Tailscale Serve) 或在網關主機上打開 {url}。",
       stayHttp: "如果您必須保持 HTTP，請設置 {config} (僅限令牌)。",
     },
-    connection: {
-      title: "如何連接",
-      step1: "在主機上啟動閘道：",
-      step2: "取得帶令牌的儀表板 URL：",
-      step3: "將 WebSocket URL 和令牌貼到上方，或直接開啟帶令牌的 URL。",
-      step4: "或產生可重複使用的令牌：",
-      docsHint: "如需遠端存取，建議使用 Tailscale Serve。",
-      docsLink: "查看文件 →",
-    },
-    cards: {
-      cost: "費用",
-      skills: "技能",
-      recentSessions: "最近會話",
-    },
-    attention: {
-      title: "注意事項",
-    },
-    eventLog: {
-      title: "事件日誌",
-    },
-    logTail: {
-      title: "閘道日誌",
-    },
-    quickActions: {
-      newSession: "新建會話",
-      automation: "自動化",
-      refreshAll: "全部刷新",
-      terminal: "終端",
-    },
-    streamMode: {
-      active: "串流模式 — 數據已隱藏",
-      disable: "禁用",
-    },
-    palette: {
-      placeholder: "輸入指令…",
-      noResults: "無結果",
-    },
-  },
-  login: {
-    subtitle: "閘道儀表板",
-    tokenPlaceholder: "貼上閘道令牌",
   },
   chat: {
     disconnected: "已斷開與網關的連接。",

@@ -5,6 +5,7 @@ import {
   type GatewayClientMode,
   type GatewayClientName,
 } from "../../../src/gateway/protocol/client-info.js";
+import { readConnectErrorDetailCode } from "../../../src/gateway/protocol/connect-error-details.js";
 // device-auth.ts is now a no-op — auth tokens handled by HttpOnly session cookies
 import { loadOrCreateDeviceIdentity, signDevicePayload } from "./device-identity.ts";
 import { generateUUID } from "./uuid.ts";
@@ -16,6 +17,10 @@ export type GatewayEventFrame = {
   seq?: number;
   stateVersion?: { presence: number; health: number };
 };
+
+export function resolveGatewayErrorDetailCode(error?: { details?: unknown } | null): string | null {
+  return readConnectErrorDetailCode(error?.details);
+}
 
 export type GatewayResponseFrame = {
   type: "res";

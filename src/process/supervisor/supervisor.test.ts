@@ -1,20 +1,31 @@
 import { describe, expect, it } from "vitest";
-import {
-  PROCESS_TEST_NO_OUTPUT_TIMEOUT_MS,
-  PROCESS_TEST_SCRIPT_DELAY_MS,
-  PROCESS_TEST_TIMEOUT_MS,
-} from "../test-timeouts.js";
 import { createProcessSupervisor } from "./supervisor.js";
+
+type ProcessSupervisor = ReturnType<typeof createProcessSupervisor>;
+type SpawnOptions = Parameters<ProcessSupervisor["spawn"]>[0];
+type ChildSpawnOptions = Omit<Extract<SpawnOptions, { mode: "child" }>, "backendId" | "mode">;
+const OUTPUT_DELAY_MS = 40;
+
+async function spawnChild(supervisor: ProcessSupervisor, options: ChildSpawnOptions) {
+  return supervisor.spawn({
+    ...options,
+    backendId: "test",
+    mode: "child",
+  });
+}
 
 describe("process supervisor", () => {
   it("spawns child runs and captures output", async () => {
     const supervisor = createProcessSupervisor();
-    const run = await supervisor.spawn({
+    const run = await spawnChild(supervisor, {
       sessionId: "s1",
-      backendId: "test",
-      mode: "child",
-      argv: [process.execPath, "-e", 'process.stdout.write("ok")'],
-      timeoutMs: PROCESS_TEST_TIMEOUT_MS.long,
+      // Delay stdout slightly so listeners are attached even on heavily loaded runners.
+      argv: [
+        process.execPath,
+        "-e",
+        `setTimeout(() => process.stdout.write("ok"), ${OUTPUT_DELAY_MS})`,
+      ],
+      timeoutMs: 2_000,
       stdinMode: "pipe-closed",
     });
     const exit = await run.wait();
@@ -25,17 +36,11 @@ describe("process supervisor", () => {
 
   it("enforces no-output timeout for silent processes", async () => {
     const supervisor = createProcessSupervisor();
-    const run = await supervisor.spawn({
+    const run = await spawnChild(supervisor, {
       sessionId: "s1",
-      backendId: "test",
-      mode: "child",
-      argv: [
-        process.execPath,
-        "-e",
-        `setTimeout(() => {}, ${PROCESS_TEST_SCRIPT_DELAY_MS.silentProcess})`,
-      ],
-      timeoutMs: PROCESS_TEST_TIMEOUT_MS.standard,
-      noOutputTimeoutMs: PROCESS_TEST_NO_OUTPUT_TIMEOUT_MS.supervisor,
+      argv: [process.execPath, "-e", "setTimeout(() => {}, 40)"],
+      timeoutMs: 500,
+      noOutputTimeoutMs: 20,
       stdinMode: "pipe-closed",
     });
     const exit = await run.wait();
@@ -46,28 +51,25 @@ describe("process supervisor", () => {
 
   it("cancels prior scoped run when replaceExistingScope is enabled", async () => {
     const supervisor = createProcessSupervisor();
-    const first = await supervisor.spawn({
+    const first = await spawnChild(supervisor, {
       sessionId: "s1",
-      backendId: "test",
       scopeKey: "scope:a",
-      mode: "child",
-      argv: [
-        process.execPath,
-        "-e",
-        `setTimeout(() => {}, ${PROCESS_TEST_SCRIPT_DELAY_MS.silentProcess})`,
-      ],
-      timeoutMs: PROCESS_TEST_TIMEOUT_MS.standard,
+      argv: [process.execPath, "-e", "setTimeout(() => {}, 1_000)"],
+      timeoutMs: 2_000,
       stdinMode: "pipe-open",
     });
 
-    const second = await supervisor.spawn({
+    const second = await spawnChild(supervisor, {
       sessionId: "s1",
-      backendId: "test",
       scopeKey: "scope:a",
       replaceExistingScope: true,
-      mode: "child",
-      argv: [process.execPath, "-e", 'process.stdout.write("new")'],
-      timeoutMs: PROCESS_TEST_TIMEOUT_MS.long,
+      // Small delay makes stdout capture deterministic by giving listeners time to attach.
+      argv: [
+        process.execPath,
+        "-e",
+        `setTimeout(() => process.stdout.write("new"), ${OUTPUT_DELAY_MS})`,
+      ],
+      timeoutMs: 2_000,
       stdinMode: "pipe-closed",
     });
 
@@ -80,16 +82,10 @@ describe("process supervisor", () => {
 
   it("applies overall timeout even for near-immediate timer firing", async () => {
     const supervisor = createProcessSupervisor();
-    const run = await supervisor.spawn({
+    const run = await spawnChild(supervisor, {
       sessionId: "s-timeout",
-      backendId: "test",
-      mode: "child",
-      argv: [
-        process.execPath,
-        "-e",
-        `setTimeout(() => {}, ${PROCESS_TEST_SCRIPT_DELAY_MS.silentProcess})`,
-      ],
-      timeoutMs: PROCESS_TEST_TIMEOUT_MS.tiny,
+      argv: [process.execPath, "-e", "setTimeout(() => {}, 40)"],
+      timeoutMs: 1,
       stdinMode: "pipe-closed",
     });
     const exit = await run.wait();
@@ -100,12 +96,15 @@ describe("process supervisor", () => {
   it("can stream output without retaining it in RunExit payload", async () => {
     const supervisor = createProcessSupervisor();
     let streamed = "";
-    const run = await supervisor.spawn({
+    const run = await spawnChild(supervisor, {
       sessionId: "s-capture",
-      backendId: "test",
-      mode: "child",
-      argv: [process.execPath, "-e", 'process.stdout.write("streamed")'],
-      timeoutMs: PROCESS_TEST_TIMEOUT_MS.long,
+      // Avoid race where child exits before stdout listeners are attached.
+      argv: [
+        process.execPath,
+        "-e",
+        `setTimeout(() => process.stdout.write("streamed"), ${OUTPUT_DELAY_MS})`,
+      ],
+      timeoutMs: 2_000,
       stdinMode: "pipe-closed",
       captureOutput: false,
       onStdout: (chunk) => {

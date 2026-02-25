@@ -1,7 +1,6 @@
 import type { EventLogEntry } from "./app-events.ts";
 import type { OpenClawApp } from "./app.ts";
 import type { ExecApprovalRequest } from "./controllers/exec-approval.ts";
-import type { GatewayEventFrame, GatewayHelloOk } from "./gateway.ts";
 import type { Tab } from "./navigation.ts";
 import type { UiSettings } from "./storage.ts";
 import type { AgentsListResult, PresenceEntry, HealthSnapshot, StatusSummary } from "./types.ts";
@@ -14,12 +13,12 @@ import {
 } from "./app-settings.ts";
 import { handleAgentEvent, resetToolStream, type AgentEventPayload } from "./app-tool-stream.ts";
 import { readAloud } from "./app-tts.ts";
+import { shouldReloadHistoryForFinalEvent } from "./chat-event-reload.ts";
 import { extractText } from "./chat/message-extract.ts";
-import { loadAgents } from "./controllers/agents.ts";
+import { loadAgents, loadToolsCatalog } from "./controllers/agents.ts";
 import { loadAssistantIdentity } from "./controllers/assistant-identity.ts";
 import { loadChatCommands } from "./controllers/chat-commands.ts";
-import { loadChatHistory } from "./controllers/chat.ts";
-import { handleChatEvent, type ChatEventPayload } from "./controllers/chat.ts";
+import { loadChatHistory, handleChatEvent, type ChatEventPayload } from "./controllers/chat.ts";
 import { loadDevices } from "./controllers/devices.ts";
 import {
   addExecApproval,
@@ -32,17 +31,24 @@ import { loadNodes } from "./controllers/nodes.ts";
 import { setProjectFilesGatewayClient } from "./controllers/project-files-client.ts";
 import { loadSessions } from "./controllers/sessions.ts";
 import { loadSkills } from "./controllers/skills.ts";
-import { GatewayBrowserClient } from "./gateway.ts";
+import {
+  resolveGatewayErrorDetailCode,
+  GatewayBrowserClient,
+  type GatewayEventFrame,
+  type GatewayHelloOk,
+} from "./gateway.ts";
 import { syncPreferencesOnConnect } from "./preferences-sync.ts";
 import { syncProjectsOnConnect } from "./projects-sync.ts";
 
 type GatewayHost = {
   settings: UiSettings;
   password: string;
+  clientInstanceId: string;
   client: GatewayBrowserClient | null;
   connected: boolean;
   hello: GatewayHelloOk | null;
   lastError: string | null;
+  lastErrorCode: string | null;
   onboarding?: boolean;
   eventLogBuffer: EventLogEntry[];
   eventLog: EventLogEntry[];
@@ -53,6 +59,9 @@ type GatewayHost = {
   agentsLoading: boolean;
   agentsList: AgentsListResult | null;
   agentsError: string | null;
+  toolsCatalogLoading: boolean;
+  toolsCatalogError: string | null;
+  toolsCatalogResult: import("./types.ts").ToolsCatalogResult | null;
   debugHealth: HealthSnapshot | null;
   assistantName: string;
   assistantAvatar: string | null;
@@ -125,6 +134,7 @@ function applySessionDefaults(host: GatewayHost, defaults?: SessionDefaultsSnaps
 
 export function connectGateway(host: GatewayHost) {
   host.lastError = null;
+  host.lastErrorCode = null;
   host.hello = null;
   host.connected = false;
   host.execApprovalQueue = [];
@@ -137,12 +147,14 @@ export function connectGateway(host: GatewayHost) {
     password: host.password.trim() ? host.password : undefined,
     clientName: "openclaw-control-ui",
     mode: "webchat",
+    instanceId: host.clientInstanceId,
     onHello: (hello) => {
       if (host.client !== client) {
         return;
       }
       host.connected = true;
       host.lastError = null;
+      host.lastErrorCode = null;
       host.hello = hello;
       applySnapshot(host, hello);
       // Reset orphaned chat run state from before disconnect.
@@ -153,6 +165,7 @@ export function connectGateway(host: GatewayHost) {
       resetToolStream(host as unknown as Parameters<typeof resetToolStream>[0]);
       void loadAssistantIdentity(host as unknown as OpenClawApp);
       void loadAgents(host as unknown as OpenClawApp);
+      void loadToolsCatalog(host as unknown as OpenClawApp);
       void loadNodes(host as unknown as OpenClawApp, { quiet: true });
       void loadDevices(host as unknown as OpenClawApp, { quiet: true });
       void loadModels(host as unknown as OpenClawApp);
@@ -178,15 +191,25 @@ export function connectGateway(host: GatewayHost) {
         });
       }
     },
-    onClose: ({ code, reason }) => {
+    onClose: ({ code, reason, error }) => {
       if (host.client !== client) {
         return;
       }
       setProjectFilesGatewayClient(null);
       host.connected = false;
       // Code 1012 = Service Restart (expected during config saves, don't show as error)
+      host.lastErrorCode =
+        resolveGatewayErrorDetailCode(error) ??
+        (typeof error?.code === "string" ? error.code : null);
       if (code !== 1012) {
+        if (error?.message) {
+          host.lastError = error.message;
+          return;
+        }
         host.lastError = `disconnected (${code}): ${reason || "no reason"}`;
+      } else {
+        host.lastError = null;
+        host.lastErrorCode = null;
       }
     },
     onEvent: (evt) => {
@@ -203,6 +226,7 @@ export function connectGateway(host: GatewayHost) {
       const msg = `event gap detected (expected seq ${expected}, got ${received}); refresh recommended`;
       console.warn(`[gateway] ${msg}`);
       host.lastError = msg;
+      host.lastErrorCode = null;
       setTimeout(() => {
         if (host.lastError === msg) {
           host.lastError = null;
@@ -222,6 +246,7 @@ export function handleGatewayEvent(host: GatewayHost, evt: GatewayEventFrame) {
     console.error("[gateway] handleGatewayEvent error:", evt.event, err);
   }
 }
+
 
 function handleGatewayEventUnsafe(host: GatewayHost, evt: GatewayEventFrame) {
   host.eventLogBuffer = [
@@ -348,6 +373,11 @@ function handleGatewayEventUnsafe(host: GatewayHost, evt: GatewayEventFrame) {
       }
       // Refresh skills so the popover reflects any install/remove during chat
       void loadSkills(host as unknown as OpenClawApp);
+      void loadToolsCatalog(host as unknown as OpenClawApp);
+    }
+    // Upstream: reload history for final events that require it
+    if (state === "final" && shouldReloadHistoryForFinalEvent(payload)) {
+      void loadChatHistory(host as unknown as OpenClawApp);
     }
     return;
   }

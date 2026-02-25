@@ -1,5 +1,7 @@
 const KEY = "openclaw.control.settings.v1";
 
+
+import { isSupportedLocale } from "../i18n/index.ts";
 import type { ThemeMode } from "./theme.ts";
 
 export type ProjectFile = {
@@ -19,6 +21,7 @@ export type Project = {
   files: ProjectFile[]; // File metadata (binary data in IndexedDB)
   createdAt: number;
 };
+
 
 export type UiSettings = {
   gatewayUrl: string;

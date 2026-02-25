@@ -25,6 +25,7 @@ export type GatewayRuntimeConfig = {
   openAiChatCompletionsEnabled: boolean;
   openResponsesEnabled: boolean;
   openResponsesConfig?: import("../config/types.gateway.js").GatewayHttpResponsesConfig;
+  strictTransportSecurityHeader?: string;
   controlUiBasePath: string;
   controlUiRoot?: string;
   resolvedAuth: ResolvedGatewayAuth;
@@ -78,6 +79,15 @@ export async function resolveGatewayRuntimeConfig(params: {
     false;
   const openResponsesConfig = params.cfg.gateway?.http?.endpoints?.responses;
   const openResponsesEnabled = params.openResponsesEnabled ?? openResponsesConfig?.enabled ?? false;
+  const strictTransportSecurityConfig =
+    params.cfg.gateway?.http?.securityHeaders?.strictTransportSecurity;
+  const strictTransportSecurityHeader =
+    strictTransportSecurityConfig === false
+      ? undefined
+      : typeof strictTransportSecurityConfig === "string" &&
+          strictTransportSecurityConfig.trim().length > 0
+        ? strictTransportSecurityConfig.trim()
+        : undefined;
   const controlUiBasePath = normalizeControlUiBasePath(params.cfg.gateway?.controlUi?.basePath);
   const controlUiRootRaw = params.cfg.gateway?.controlUi?.root;
   const controlUiRoot =
@@ -106,6 +116,11 @@ export async function resolveGatewayRuntimeConfig(params: {
     process.env.OPENCLAW_SKIP_CANVAS_HOST !== "1" && params.cfg.canvasHost?.enabled !== false;
 
   const trustedProxies = params.cfg.gateway?.trustedProxies ?? [];
+  const controlUiAllowedOrigins = (params.cfg.gateway?.controlUi?.allowedOrigins ?? [])
+    .map((value) => value.trim())
+    .filter(Boolean);
+  const dangerouslyAllowHostHeaderOriginFallback =
+    params.cfg.gateway?.controlUi?.dangerouslyAllowHostHeaderOriginFallback === true;
 
   assertGatewayAuthConfigured(resolvedAuth);
   if (tailscaleMode === "funnel" && authMode !== "password") {
@@ -121,6 +136,7 @@ export async function resolveGatewayRuntimeConfig(params: {
       `refusing to bind gateway to ${bindHost}:${params.port} without auth (set gateway.auth.token/password, or set OPENCLAW_GATEWAY_TOKEN/OPENCLAW_GATEWAY_PASSWORD)`,
     );
   }
+
   // Block non-loopback HTTP without TLS — a network sniffer would see credentials in cleartext
   const tlsEnabled = params.cfg.gateway?.tls?.enabled === true;
   const allowInsecureLan = params.cfg.gateway?.controlUi?.allowInsecureAuth === true;
@@ -129,6 +145,16 @@ export async function resolveGatewayRuntimeConfig(params: {
       `refusing to bind gateway to ${bindHost}:${params.port} over plain HTTP — ` +
         `credentials would be visible to network sniffers. ` +
         `Enable TLS (gateway.tls.enabled), use Tailscale, or set gateway.controlUi.allowInsecureAuth=true to override.`,
+    );
+  }
+  if (
+    controlUiEnabled &&
+    !isLoopbackHost(bindHost) &&
+    controlUiAllowedOrigins.length === 0 &&
+    !dangerouslyAllowHostHeaderOriginFallback
+  ) {
+    throw new Error(
+      "non-loopback Control UI requires gateway.controlUi.allowedOrigins (set explicit origins), or set gateway.controlUi.dangerouslyAllowHostHeaderOriginFallback=true to use Host-header origin fallback mode",
     );
   }
 
@@ -158,6 +184,7 @@ export async function resolveGatewayRuntimeConfig(params: {
     openResponsesConfig: openResponsesConfig
       ? { ...openResponsesConfig, enabled: openResponsesEnabled }
       : undefined,
+    strictTransportSecurityHeader,
     controlUiBasePath,
     controlUiRoot,
     resolvedAuth,

@@ -2,6 +2,7 @@ import type { TranslationMap } from "../lib/types.ts";
 
 export const pt_BR: TranslationMap = {
   common: {
+    version: "Versão",
     health: "Saúde",
     ok: "OK",
     offline: "Offline",
@@ -12,7 +13,6 @@ export const pt_BR: TranslationMap = {
     na: "n/a",
     docs: "Docs",
     resources: "Recursos",
-    search: "Pesquisar",
   },
   nav: {
     chat: "Chat",
@@ -98,51 +98,15 @@ export const pt_BR: TranslationMap = {
       failed:
         "Falha na autenticação. Recopie uma URL com token usando {command}, ou atualize o token e clique em Conectar.",
     },
+    pairing: {
+      hint: "Este dispositivo precisa de aprovação de pareamento do host do gateway.",
+      mobileHint:
+        "No celular? Copie a URL completa (incluindo #token=...) executando openclaw dashboard --no-open no desktop.",
+    },
     insecure: {
       hint: "Esta página é HTTP, então o navegador bloqueia a identidade do dispositivo. Use HTTPS (Tailscale Serve) ou abra {url} no host do gateway.",
       stayHttp: "Se você precisar permanecer em HTTP, defina {config} (apenas token).",
     },
-    connection: {
-      title: "Como conectar",
-      step1: "Inicie o gateway na sua máquina host:",
-      step2: "Obtenha uma URL do painel com token:",
-      step3: "Cole a URL do WebSocket e o token acima, ou abra a URL com token diretamente.",
-      step4: "Ou gere um token reutilizável:",
-      docsHint: "Para acesso remoto, recomendamos o Tailscale Serve. ",
-      docsLink: "Leia a documentação →",
-    },
-    cards: {
-      cost: "Custo",
-      skills: "Habilidades",
-      recentSessions: "Sessões Recentes",
-    },
-    attention: {
-      title: "Atenção",
-    },
-    eventLog: {
-      title: "Log de Eventos",
-    },
-    logTail: {
-      title: "Logs do Gateway",
-    },
-    quickActions: {
-      newSession: "Nova Sessão",
-      automation: "Automação",
-      refreshAll: "Atualizar Tudo",
-      terminal: "Terminal",
-    },
-    streamMode: {
-      active: "Modo stream — valores ocultos",
-      disable: "Desativar",
-    },
-    palette: {
-      placeholder: "Digite um comando…",
-      noResults: "Sem resultados",
-    },
-  },
-  login: {
-    subtitle: "Painel do Gateway",
-    tokenPlaceholder: "cole o token do gateway",
   },
   chat: {
     disconnected: "Desconectado do gateway.",
