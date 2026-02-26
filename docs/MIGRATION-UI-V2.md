@@ -280,6 +280,7 @@ if (!authUser) {
 | Session attachments (serveur)       | ❌         | ❌                | ✅                |
 | **Per-user session isolation**      | ❌         | ❌                | ✅                |
 | **Admin session management panel** | ❌         | ❌                | ✅                |
+| **E2E encryption (sessions archivées)** | ❌    | ❌                | ✅                |
 | Audit logging                       | ⚠️ Minimal | ⚠️ Minimal        | ✅ Complet        |
 | Rate limiting                       | ✅         | ✅                | ✅                |
 | CSP / Security headers              | ✅         | ✅                | ✅                |
@@ -364,8 +365,11 @@ New opt-in features for users who create hashed credentials:
 - Multi-user authentication with RBAC (admin/operator/viewer)
 - 2FA TOTP support
 - Encrypted session persistence
+- **E2E encryption of archived sessions** (AES-256-GCM, client-side PBKDF2 key derivation)
 - Server-side preferences & projects sync
 - Enhanced audit logging
+
+> **Note** : Le recovery code ne permet **pas** de récupérer les sessions chiffrées. La réinitialisation du password via recovery code régénère le salt de chiffrement — les fichiers `.enc` existants deviennent irrécupérables (`encryptedSessionsLost: true`).
 
 **Upgrading**: See [MIGRATION-UI-V2.md](docs/MIGRATION-UI-V2.md)
 ```
@@ -376,7 +380,7 @@ Tests unitaires couvrant les chemins de rétrocompatibilité (implémentés) :
 
 - **`src/gateway/server-methods/auth-identity.test.ts`** (26 tests) :
   - `resolveAuthIdentity` : retourne `null` en token mode → pas de filtrage
-  - `canSeeAllSessions` : `true` en token mode et admin, `false` pour operator/read-only
+  - `canSeeAllSessions` : `true` en token mode uniquement, `false` pour admin/operator/read-only
   - `assertSessionOwnership` : bypass token/admin/legacy, FORBIDDEN cross-user
   - `filterStoreByOwner` : own + legacy sessions, pas celles des autres
 - **`src/auto-reply/reply/session.test.ts`** (+5 tests) :
@@ -400,6 +404,7 @@ Tests unitaires couvrant les chemins de rétrocompatibilité (implémentés) :
 4. **Isolation par mode** — Token mode = ZERO side effects
 5. **Migration automatique** — Config legacy auto-migrée au boot
 6. **Isolation sessions per-user** — En mode hashed credentials, chaque utilisateur ne voit que ses propres sessions dans la sidebar (admins inclus). Les admins accèdent à un panneau dédié pour gérer les sessions de tous (métadonnées seules, sessions legacy restent visibles par tous)
+7. **E2E encryption** — Les transcripts archivés sont chiffrés client-side (AES-256-GCM via WebCrypto). Le serveur ne voit jamais le plaintext. Re-encryption automatique au changement de password
 
 ### ⚠️ Points à Clarifier dans la PR
 
