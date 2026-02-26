@@ -35,22 +35,36 @@ const useHashedCredentials = mode === "password" && hasGatewayUsers();
 
 ## 🗂️ Architecture de Stockage
 
-### Sessions/Chats (Globaux au Gateway)
+### Sessions/Chats
 
-Les **sessions de chat** sont stockées dans `~/.openclaw/sessions/` et sont **GLOBALES** :
+Les **sessions de chat** sont stockées dans `~/.openclaw/agents/<agentId>/sessions/` :
 
 ```
-~/.openclaw/sessions/
-├── session-abc123.json    ← Chat avec l'agent
-├── session-def456.json    ← Autre conversation
-└── session-ghi789.json    ← Projet discussions
+~/.openclaw/agents/main/sessions/
+├── sessions.json          ← Index des sessions (avec ownerId)
+├── session-abc123.jsonl   ← Transcript chat
+├── session-def456.jsonl   ← Autre conversation
+└── session-ghi789.jsonl   ← Projet discussions
 ```
 
-**Important** :
-- ✅ Les chats **ne sont PAS liés à un username**
-- ✅ Tous les utilisateurs voient **toutes les sessions**
+**Isolation per-user** (mode hashed credentials) :
+
+- ✅ Chaque session a un champ `ownerId` qui stocke le username du créateur
+- ✅ Un **opérateur** ne voit que ses propres sessions + les sessions legacy (sans `ownerId`)
+- ✅ Un **admin** voit et peut modifier **toutes** les sessions
+- ✅ Les sessions **legacy** (créées avant l'isolation) restent visibles par tous
 - ✅ Les chats **survivent aux updates** et changements d'auth mode
-- ⚠️ Pour un vrai multi-tenant, utiliser plusieurs instances OpenClaw
+
+**Comportement par mode** :
+
+| Mode | Visibilité sessions |
+|---|---|
+| `token` / `none` | Toutes les sessions visibles (pas de filtrage) |
+| `password` (legacy plaintext) | Toutes les sessions visibles |
+| `password` (hashed credentials, operator) | Propres sessions + sessions legacy uniquement |
+| `password` (hashed credentials, admin) | Toutes les sessions |
+
+> **Note** : le stockage fichier reste global. L'isolation est appliquée au niveau gateway (filtrage `sessions.list`, guards sur `sessions.patch/delete`, `chat.history/send`).
 
 ### Métadonnées UI (Par Utilisateur)
 
@@ -179,7 +193,7 @@ openclaw gateway restart
 
 **Lors de votre premier login**, l'UI V2 migrera automatiquement vos données du navigateur vers le serveur :
 
-- ✅ **Chats/Sessions** : Toujours visibles (stockés côté serveur, globaux)
+- ✅ **Chats/Sessions** : Les sessions existantes (sans `ownerId`) restent visibles par tous les utilisateurs. Les nouvelles sessions seront isolées per-user.
 - ✅ **Projets** : Migrés automatiquement du localStorage → serveur
 - ✅ **Pinned/Archived** : Migrés automatiquement du localStorage → serveur
 - ✅ **Préférences UI** : Migrées automatiquement du localStorage → serveur
@@ -264,6 +278,7 @@ if (!authUser) {
 | User preferences sync (serveur)     | ❌         | ❌                | ✅                |
 | Projects sync (serveur)             | ❌         | ❌                | ✅                |
 | Session attachments (serveur)       | ❌         | ❌                | ✅                |
+| **Per-user session isolation**      | ❌         | ❌                | ✅                |
 | Audit logging                       | ⚠️ Minimal | ⚠️ Minimal        | ✅ Complet        |
 | Rate limiting                       | ✅         | ✅                | ✅                |
 | CSP / Security headers              | ✅         | ✅                | ✅                |
@@ -354,25 +369,23 @@ New opt-in features for users who create hashed credentials:
 **Upgrading**: See [MIGRATION-UI-V2.md](docs/MIGRATION-UI-V2.md)
 ```
 
-### 3. **Tests de Non-Régression**
+### 3. **Tests de Non-Régression** ✅
 
-Ajouter des tests pour vérifier la compatibilité :
+Tests unitaires couvrant les chemins de rétrocompatibilité (implémentés) :
 
-```typescript
-// Vérifier que token mode ne charge PAS les nouveaux modules
-describe("backward compatibility", () => {
-  it("token mode bypasses hashed credentials features", async () => {
-    const auth = resolveGatewayAuth({ authConfig: { mode: "token", token: "secret" } });
-    expect(auth.useHashedCredentials).toBe(false);
-  });
-
-  it("password mode without users falls back to legacy plaintext", async () => {
-    const auth = resolveGatewayAuth({ authConfig: { mode: "password", password: "secret" } });
-    expect(auth.useHashedCredentials).toBe(false);
-    expect(auth.password).toBe("secret");
-  });
-});
-```
+- **`src/gateway/server-methods/auth-identity.test.ts`** (26 tests) :
+  - `resolveAuthIdentity` : retourne `null` en token mode → pas de filtrage
+  - `canSeeAllSessions` : `true` en token mode et admin, `false` pour operator/read-only
+  - `assertSessionOwnership` : bypass token/admin/legacy, FORBIDDEN cross-user
+  - `filterStoreByOwner` : own + legacy sessions, pas celles des autres
+- **`src/auto-reply/reply/session.test.ts`** (+5 tests) :
+  - `ownerId` stampé depuis `GatewayAuthUser` sur nouvelle session
+  - `ownerId` absent en token mode (pas de `GatewayAuthUser`)
+  - `ownerId` préservé sur messages suivants et après `/new`
+  - Legacy session acquiert `ownerId` au premier contact authentifié
+- **`src/gateway/auth.test.ts`** (+7 tests) :
+  - `assertGatewayAuthConfigured` : throw/no-throw par mode
+  - Tailscale bypass, hashed credentials, trusted-proxy validation
 
 ---
 
@@ -385,13 +398,14 @@ describe("backward compatibility", () => {
 3. **Fail-open** — Le gateway ne crash JAMAIS à cause des nouveaux modules
 4. **Isolation par mode** — Token mode = ZERO side effects
 5. **Migration automatique** — Config legacy auto-migrée au boot
+6. **Isolation sessions per-user** — En mode hashed credentials, chaque utilisateur ne voit que ses propres sessions (admins voient tout, sessions legacy restent visibles par tous)
 
 ### ⚠️ Points à Clarifier dans la PR
 
 1. **Documenter clairement** le upgrade path dans README
 2. **Ajouter un CHANGELOG** entry visible
 3. **Tester la migration** : token → hashed credentials
-4. **Vérifier** que `prepack` build bien l'UI avant npm publish
+4. **`prepack` vérifié** ✅ — `pnpm build && pnpm ui:build` enchaîné automatiquement par `npm pack`. Assets UI inclus dans le tarball (index.html, CSS, JS, sourcemaps).
 5. **Screenshots** : avant/après pour montrer l'UI V2
 
 ---
@@ -405,6 +419,4 @@ La rétrocompatibilité est **excellente** :
 - Utilisateurs password legacy → Aucun changement
 - Nouveaux utilisateurs → Opt-in vers hashed credentials
 
-**Seul point manquant** : Documentation utilisateur claire sur le upgrade path.
-
-Veux-tu que je t'aide à rédiger cette documentation ?
+Le upgrade path est documenté ci-dessus. Les tests de non-régression couvrent les chemins critiques de rétrocompatibilité.
