@@ -1392,3 +1392,121 @@ describe("initSessionState internal channel routing preservation", () => {
     expect(result.sessionEntry.lastChannel).toBe("webchat");
   });
 });
+
+describe("initSessionState ownerId stamping", () => {
+  it("stamps ownerId from GatewayAuthUser on new session", async () => {
+    const storePath = await createStorePath("openclaw-ownerid-new-");
+    const cfg = { session: { store: storePath } } as OpenClawConfig;
+
+    const result = await initSessionState({
+      ctx: {
+        Body: "hello",
+        SessionKey: "agent:main:web-new-owner",
+        GatewayAuthUser: "alice",
+      },
+      cfg,
+      commandAuthorized: true,
+    });
+
+    expect(result.isNewSession).toBe(true);
+    expect(result.sessionEntry.ownerId).toBe("alice");
+  });
+
+  it("does not set ownerId when GatewayAuthUser is absent (token mode)", async () => {
+    const storePath = await createStorePath("openclaw-ownerid-token-");
+    const cfg = { session: { store: storePath } } as OpenClawConfig;
+
+    const result = await initSessionState({
+      ctx: {
+        Body: "hello",
+        SessionKey: "agent:main:web-no-owner",
+      },
+      cfg,
+      commandAuthorized: true,
+    });
+
+    expect(result.isNewSession).toBe(true);
+    expect(result.sessionEntry.ownerId).toBeUndefined();
+  });
+
+  it("preserves existing ownerId on subsequent messages (does not overwrite)", async () => {
+    const storePath = await createStorePath("openclaw-ownerid-preserve-");
+    const sessionKey = "agent:main:web-preserve-owner";
+    await saveSessionStore(storePath, {
+      [sessionKey]: {
+        sessionId: "sess-existing",
+        updatedAt: Date.now(),
+        ownerId: "alice",
+      },
+    });
+    const cfg = { session: { store: storePath, idleMinutes: 999 } } as OpenClawConfig;
+
+    const result = await initSessionState({
+      ctx: {
+        Body: "follow-up",
+        SessionKey: sessionKey,
+        GatewayAuthUser: "bob",
+      },
+      cfg,
+      commandAuthorized: true,
+    });
+
+    expect(result.isNewSession).toBe(false);
+    expect(result.sessionEntry.ownerId).toBe("alice");
+  });
+
+  it("preserves ownerId across /new reset", async () => {
+    const storePath = await createStorePath("openclaw-ownerid-reset-");
+    const sessionKey = "agent:main:web-reset-owner";
+    await saveSessionStore(storePath, {
+      [sessionKey]: {
+        sessionId: "sess-before-reset",
+        updatedAt: Date.now(),
+        ownerId: "alice",
+      },
+    });
+    const cfg = { session: { store: storePath, idleMinutes: 999 } } as OpenClawConfig;
+
+    const result = await initSessionState({
+      ctx: {
+        Body: "/new",
+        RawBody: "/new",
+        CommandBody: "/new",
+        SessionKey: sessionKey,
+        GatewayAuthUser: "alice",
+      },
+      cfg,
+      commandAuthorized: true,
+    });
+
+    expect(result.isNewSession).toBe(true);
+    expect(result.resetTriggered).toBe(true);
+    expect(result.sessionEntry.ownerId).toBe("alice");
+  });
+
+  it("stamps ownerId on legacy session without owner when GatewayAuthUser is set", async () => {
+    const storePath = await createStorePath("openclaw-ownerid-legacy-");
+    const sessionKey = "agent:main:web-legacy-owner";
+    await saveSessionStore(storePath, {
+      [sessionKey]: {
+        sessionId: "sess-legacy",
+        updatedAt: Date.now(),
+        // no ownerId — legacy session
+      },
+    });
+    const cfg = { session: { store: storePath, idleMinutes: 999 } } as OpenClawConfig;
+
+    const result = await initSessionState({
+      ctx: {
+        Body: "hello",
+        SessionKey: sessionKey,
+        GatewayAuthUser: "alice",
+      },
+      cfg,
+      commandAuthorized: true,
+    });
+
+    expect(result.isNewSession).toBe(false);
+    expect(result.sessionEntry.ownerId).toBe("alice");
+  });
+});
