@@ -4,7 +4,9 @@
  * Includes progressive rate limiting on login and recovery attempts.
  */
 
+import crypto from "node:crypto";
 import type { IncomingMessage, ServerResponse } from "node:http";
+import { loadConfig, writeConfigFile } from "../config/io.js";
 import type { ResolvedGatewayAuth } from "./auth.js";
 import {
   createGatewayUser,
@@ -142,6 +144,10 @@ export function handleAuthHttpRequest(
   }
   if (route === "/auth/setup" && req.method === "POST") {
     void handleSetup(req, res, opts);
+    return true;
+  }
+  if (route === "/auth/quick-setup" && req.method === "POST") {
+    void handleQuickSetup(req, res);
     return true;
   }
   if (route === "/auth/change-password" && req.method === "POST") {
@@ -499,6 +505,7 @@ function handleCapabilities(res: ServerResponse, resolvedAuth?: ResolvedGatewayA
     has2fa: isHashed,
     hasUserManagement: isHashed,
     needsSetup,
+    hasUsers: hasGatewayUsers(),
   });
 }
 
@@ -616,6 +623,62 @@ async function handleSetup(
     user: { username: session.username, role: session.role, scopes: session.scopes },
     csrfToken: session.csrfToken,
   });
+}
+
+// --- Quick Setup (token-based auth, no user creation) ---
+
+async function handleQuickSetup(
+  _req: IncomingMessage,
+  res: ServerResponse,
+): Promise<void> {
+  // Only allow quick setup when no users exist yet
+  if (hasGatewayUsers()) {
+    sendJson(res, 403, {
+      error: { message: "Users already exist. Quick setup is not available.", type: "forbidden" },
+    });
+    return;
+  }
+
+  try {
+    // Generate a secure random token
+    const token = crypto.randomBytes(32).toString("hex");
+
+    // Load current config
+    const cfg = loadConfig();
+
+    // Create updated config with token auth
+    const updated = {
+      ...cfg,
+      gateway: {
+        ...cfg.gateway,
+        auth: {
+          ...cfg.gateway?.auth,
+          mode: "token" as const,
+          token,
+        },
+      },
+    };
+
+    // Save config to disk
+    await writeConfigFile(updated);
+
+    sendJson(res, 200, {
+      ok: true,
+      message: "Quick setup complete. Please restart the gateway to apply changes.",
+      token, // Return token so UI can use it for first connection
+    });
+
+    // Note: Gateway restart is required to reload config with new token.
+    // This is intentionally left as a manual step to avoid unexpected restarts.
+  } catch (error) {
+    sendJson(res, 500, {
+      error: {
+        message: "Failed to save configuration",
+        type: "internal_error",
+        details: error instanceof Error ? error.message : String(error),
+      },
+    });
+  }
 }
 
 // --- Change password (authenticated users) ---

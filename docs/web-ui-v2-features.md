@@ -423,6 +423,67 @@ openclaw user revoke    # Revoke all active sessions for a user
 - Roles map to **scopes** (`operator.admin`, `operator.read`, `operator.write`, `operator.approvals`, `operator.pairing`).
 - Every WS method is gated by scope — read methods require `operator.read`, mutations require `operator.write`, config changes require `operator.admin`.
 
+### 21.6 Onboarding Improvements
+
+#### Fresh Install Choice Screen
+
+On first-time install when no users exist and no explicit auth configuration is set, the UI displays an **onboarding choice screen** instead of immediately defaulting to token mode:
+
+- **Quick Setup**: one-click token generation (legacy behavior, fast but single-user).
+- **Secure Setup** (recommended): creates a hashed-credentials admin account with optional 2FA setup.
+
+Backend detects fresh install via `GET /auth/capabilities` returning `hasUsers: false` and `authMode: "token"`.
+
+#### Quick Setup Endpoint
+
+- **`POST /auth/quick-setup`**: generates a random token, writes it to `config.yaml` under `gateway.auth.token`, and triggers gateway config reload.
+- Only allowed when `hasGatewayUsers() === false`.
+- Auto-activates token mode for seamless single-user experience.
+
+#### AuthStatus State
+
+Frontend `AuthStatus` enum extended with `"onboarding-choice"` to gate the choice screen UI.
+
+### 21.7 Password Recovery Flow
+
+#### Forgot Password Link
+
+Login screen now includes a **"Forgot password?" link** that transitions the UI to password recovery mode.
+
+#### Two-Step Recovery UI
+
+1. **Credentials step**: user enters username + 8-16 digit recovery code.
+2. **New password step**: user sets a new password (min 8 chars, confirmation required).
+
+Recovery codes are validated using timing-safe scrypt comparison (same scheme as password hashing).
+
+#### Backend Endpoint
+
+**`POST /auth/reset-password`** (already documented in §21.2):
+- Double-keyed progressive rate limiting (IP + username).
+- Timing-safe scrypt verify prevents username enumeration.
+- Gated by `useHashedCredentials` (not available in legacy password mode).
+
+#### Auto-Login
+
+On successful password reset, the UI auto-logs in with the new credentials.
+
+### 21.8 Migration Banner
+
+For existing users in **token mode** without hashed credentials, the UI displays a dismissible **migration banner** at the top of the screen:
+
+- **Appearance**: gradient purple banner with info icon, text "Upgrade to Secure Mode", and action buttons.
+- **Actions**:
+  - **Learn More**: opens `MIGRATION-UI-V2.md` in new tab.
+  - **Upgrade Now**: shows `confirm()` dialog with CLI instructions (`openclaw user create`, config change, restart).
+  - **Dismiss (×)**: hides banner and persists dismissal state to `localStorage` (`openclaw.migration-banner-dismissed`).
+
+#### Detection
+
+Banner shown when:
+- `authStatus === "no-auth"` (token mode active).
+- `!migrationBannerDismissed` (user hasn't dismissed it yet).
+
 ---
 
 ## 22. Security Hardening

@@ -528,3 +528,143 @@ Systematic verification of every documented feature against the code. Correction
 3. **§22.1 CSP**: fixed `connect-src` from `'self'` to `'self' ws: wss:`. Added missing directives: `base-uri 'none'`, `object-src 'none'`, `img-src 'self' data: https:`, `font-src 'self'`.
 4. **§22.14 Summary**: corrected CSP from `script-src 'nonce-...'` to `script-src 'self'` (matches `control-ui-csp.ts`).
 5. **§22.10 Limits**: added session attachment limits — `Files per session: 200`, `File data size (session): 35 MB`.
+
+---
+
+## `fa2899e3e` — 2026-02-26
+
+### Merge remote-tracking branch 'upstream/main' into feature/web-ui-v2
+
+**Massive upstream sync**: merged 1333+ commits from `openclaw/openclaw:main` into the `feature/web-ui-v2` branch.
+
+#### Key upstream additions integrated:
+
+- **Android app enhancements**: Gateway session invoke roundtrip tests, invoke error parser, command registry, benchmark infrastructure, startup performance tooling
+- **macOS app**: Removed Anthropic OAuth onboarding flow (replaced with token-based auth)
+- **Security hardening**:
+  - Sandbox container namespace join blocking by default
+  - Safe-bin trusted directory restrictions
+  - Hardened system.run companion command binding
+  - SSRF IPv6 multicast blocking
+  - Workspace hardlink alias escape prevention
+  - Session attachment temp path hardening
+- **Channel improvements**:
+  - Discord DAVE voice receive reliability, embed fallback in thread starters
+  - Telegram IPv4-first DNS pinning (IPv6 broken host compatibility), empty-text fallback fixes
+  - Slack file-only message delivery, DM channel-type guard, reaction ingress authorization
+  - Signal reaction auth flow unification
+  - LINE lifecycle fix for pending account state
+  - Zalo group sender policy enforcement
+  - Synology Chat empty allowlist fail-closed fix
+  - iMessage echo dedupe and reasoning suppression
+- **Agent & model improvements**:
+  - Model fallback chain fixes (quota fallback, configured fallback models, OpenRouter cooldown bypass)
+  - Allowlist refs beyond catalog trust
+  - Gemini 3.1 reasoning payload sanitization
+  - SiliconFlow Pro thinking=off normalization
+  - Kimi K2 cached_tokens usage parsing
+- **Gateway**:
+  - Trusted-proxy control-UI pairing bypass
+  - Rate limiting on auth (progressive cooldown: 3→30s, 6→1min, 9→5min, 12+→15min)
+  - Timing-safe secret comparison (`safeEqualSecret` module)
+  - Plugin-owned interactive channel flows in onboarding
+  - `/api/channels` plugin root protection
+- **CLI**:
+  - `openclaw audit tail` and `openclaw audit search` commands
+  - Improved doctor diagnostics (sandbox Docker warning, plugin-id mapping for channel auto-enable)
+  - Memory search `--query` support
+- **Infrastructure**:
+  - Windows PATH prepend stabilization
+  - PowerShell 7 preference with tested fallbacks
+  - CI Windows test lane sharding
+  - Cross-platform symlink path assertion fixes
+- **UI fixes**:
+  - Chat image SVG data URL blocking
+  - External link `rel` token set widening
+  - Tabnabbing prevention in chat images
+  - Mobile layout for chat compose actions
+
+#### Merge conflict resolution:
+
+- **15 conflicts** across gateway auth, server methods, onboarding wizard, and UI compose/render layers
+- Decisions:
+  - Kept 50 MB `MAX_PAYLOAD_BYTES` (needed for file attachment support in UI V2)
+  - Kept hashed credentials + TOTP onboarding flow, merged with upstream `validateGatewayPasswordInput`
+  - Kept slash-command popover + attachment compose UI, added RTL `dir` from main
+  - Took upstream's evolved device-auth implementation (replaced our stubs)
+  - Combined HTTP session cookie auth with upstream's rate-limited auth flow in WS handshake
+  - Preserved UI V2 directive-tag stripping, merged with upstream's `isSilentReplyText` filter
+  - Kept stale-client guards (`onClose`/`onGap` client identity checks)
+
+#### Backward compatibility:
+
+- All new features gated by auth mode — token-mode users see zero side effects
+- All init modules wrapped in try/catch (fail-open) — gateway never fails to start
+- New config fields optional with safe defaults
+
+---
+
+## `e7ba3369c` — 2026-02-26
+
+### feat(ui): add auth improvements - onboarding choice, password recovery, migration banner
+
+Enhanced authentication UX with three new features to improve the onboarding and migration experience:
+
+#### 1. Onboarding Choice Screen (Fresh Install)
+
+- **Choice UI**: on fresh install (no users, token mode), display "Quick Setup" vs "Secure Setup (Recommended)" choice screen.
+- **Quick Setup**: `POST /auth/quick-setup` endpoint generates token and writes to config (legacy single-user flow).
+- **Secure Setup**: transitions to existing setup wizard for hashed credentials + 2FA.
+- **Frontend**: new `AuthStatus` state `"onboarding-choice"`, new `renderOnboardingChoice()` view component with gradient card design.
+- **Backend**: `GET /auth/capabilities` now returns `hasUsers: boolean` flag for detection.
+- **Files changed**:
+  - `ui/src/ui/app-view-state.ts`: added `"onboarding-choice"` to `AuthStatus`, added `handleOnboardingChoice()` signature.
+  - `ui/src/ui/views/login.ts`: added `renderOnboardingChoice()` component (2-card layout with Quick/Secure options).
+  - `ui/src/ui/app.ts`: added `handleOnboardingChoice()` and `proceedWithQuickSetup()` methods.
+  - `ui/src/ui/app-lifecycle.ts`: modified `checkAuthAndConnect()` to detect fresh install.
+  - `ui/src/ui/app-render.ts`: added conditional render for `"onboarding-choice"` state.
+  - `src/gateway/auth-http.ts`: added `POST /auth/quick-setup` endpoint, modified `handleCapabilities()` to include `hasUsers`.
+
+#### 2. Password Recovery UI (Forgot Password Flow)
+
+- **Login screen**: added "Forgot password?" link below login button.
+- **Two-step recovery UI**:
+  1. **Credentials step**: username + recovery code (8-16 digits) input with validation.
+  2. **New password step**: new password + confirmation with minimum length validation.
+- **Auto-login**: on successful reset, UI automatically logs in with new credentials.
+- **Backend**: uses existing `POST /auth/reset-password` endpoint (double-keyed rate limiting, timing-safe scrypt verify).
+- **Frontend**: new `AuthStatus` state `"password-recovery"` with sub-step tracking (`"credentials"` | `"new-password"`).
+- **Files changed**:
+  - `ui/src/ui/app-view-state.ts`: added `"password-recovery"` to `AuthStatus`, added recovery state properties (`recoveryUsername`, `recoveryCode`, `recoveryPassword`, etc.).
+  - `ui/src/ui/views/login.ts`: modified `renderLoginView()` to add "Forgot password" link, added `renderPasswordRecoveryCredentials()` and `renderPasswordRecoveryNewPassword()` components.
+  - `ui/src/ui/auth.ts`: added `resetPassword()` API client function.
+  - `ui/src/ui/app.ts`: added recovery flow handlers (`handleForgotPassword()`, `handleRecoveryCredentialsSubmit()`, `handleRecoveryPasswordSubmit()`, `handleRecoveryCancel()`).
+  - `ui/src/ui/app-render.ts`: added conditional render for `"password-recovery"` state with sub-step routing.
+
+#### 3. Migration Banner (Token Mode Users)
+
+- **Banner UI**: gradient purple info banner at top of chat screen encouraging upgrade to secure mode.
+- **Content**: "Upgrade to Secure Mode" title, "Enable multi-user authentication, 2FA, and cross-browser sync" description.
+- **Actions**:
+  - **Learn More**: opens `MIGRATION-UI-V2.md` in new tab.
+  - **Upgrade Now**: shows `confirm()` dialog with CLI migration instructions.
+  - **Dismiss (×)**: hides banner and persists dismissal to `localStorage`.
+- **Detection**: shown when `authStatus === "no-auth"` (token mode) and `!migrationBannerDismissed`.
+- **Non-intrusive**: dismissible, no forced action, stored preference persists across sessions.
+- **Files changed**:
+  - `ui/src/ui/app-view-state.ts`: added `showMigrationBanner` and `migrationBannerDismissed` properties.
+  - `ui/src/ui/views/migration-banner.ts`: new file with `renderMigrationBanner()` component (inline styles, gradient design).
+  - `ui/src/ui/app.ts`: added migration banner state init and handlers (`handleMigrationBannerDismiss()`, `handleMigrationLearnMore()`, `handleMigrationUpgrade()`).
+  - `ui/src/ui/app-render.ts`: added conditional banner render at top of shell.
+
+#### Build Output
+
+- Bundle size: 699.27 kB (main.js), +4 kB vs pre-Phase-3.
+- Build time: 2.98s.
+- No errors or warnings.
+
+#### Backward Compatibility
+
+- **Zero breaking changes**: all existing users (token, password legacy, hashed credentials) continue to work without modification.
+- **Opt-in UX**: new users see choice screen (can still choose Quick Setup), existing users see optional migration banner (dismissible).
+- **Fail-open**: all new UI states gracefully degrade if backend doesn't support new endpoints.

@@ -71,6 +71,9 @@ import { renderGatewayUrlConfirmation } from "./views/gateway-url-confirmation.t
 import { renderInstances } from "./views/instances.ts";
 import {
   renderLoginView,
+  renderOnboardingChoice,
+  renderPasswordRecoveryCredentials,
+  renderPasswordRecoveryNewPassword,
   renderSetupView,
   renderSetupTotpBackupCodesView,
   renderSetupTotpPromptView,
@@ -78,6 +81,7 @@ import {
   renderTotpChallengeView,
 } from "./views/login.ts";
 import { renderLogs } from "./views/logs.ts";
+import { renderMigrationBanner } from "./views/migration-banner.ts";
 import { renderNodes } from "./views/nodes.ts";
 import { renderOverview } from "./views/overview.ts";
 import { renderSessions } from "./views/sessions.ts";
@@ -281,6 +285,56 @@ export function renderApp(state: AppViewState) {
       </style>
     `;
   }
+  // Auth gate: onboarding choice (Quick Setup vs Secure Setup)
+  if (state.authStatus === "onboarding-choice") {
+    return renderOnboardingChoice({
+      onChoiceSelect: (choice) => {
+        state.handleOnboardingChoice(choice);
+      },
+    });
+  }
+  // Auth gate: password recovery (forgot password flow)
+  if (state.authStatus === "password-recovery") {
+    if (state.recoveryStep === "credentials") {
+      return renderPasswordRecoveryCredentials({
+        username: state.recoveryUsername,
+        recoveryCode: state.recoveryCode,
+        error: state.recoveryError,
+        loading: state.recoveryLoading,
+        onUsernameInput: (e) => {
+          state.recoveryUsername = (e.target as HTMLInputElement).value;
+        },
+        onRecoveryCodeInput: (e) => {
+          state.recoveryCode = (e.target as HTMLInputElement).value;
+        },
+        onSubmit: () => {
+          state.handleRecoveryCredentialsSubmit();
+        },
+        onBack: () => {
+          state.handleRecoveryCancel();
+        },
+      });
+    } else {
+      return renderPasswordRecoveryNewPassword({
+        password: state.recoveryPassword,
+        passwordConfirm: state.recoveryPasswordConfirm,
+        error: state.recoveryError,
+        loading: state.recoveryLoading,
+        onPasswordInput: (e) => {
+          state.recoveryPassword = (e.target as HTMLInputElement).value;
+        },
+        onPasswordConfirmInput: (e) => {
+          state.recoveryPasswordConfirm = (e.target as HTMLInputElement).value;
+        },
+        onSubmit: () => {
+          void state.handleRecoveryPasswordSubmit();
+        },
+        onCancel: () => {
+          state.handleRecoveryCancel();
+        },
+      });
+    }
+  }
   // Auth gate: first-time setup wizard
   if (state.authStatus === "needs-setup") {
     return renderSetupView({
@@ -361,6 +415,9 @@ export function renderApp(state: AppViewState) {
       onSubmit: () => {
         void state.handleLogin();
       },
+      onForgotPassword: () => {
+        state.handleForgotPassword();
+      },
     });
   }
   // Auth gate: TOTP challenge screen
@@ -409,6 +466,15 @@ export function renderApp(state: AppViewState) {
 
   return html`
     <div class="shell ${isChat ? "shell--chat" : ""} ${chatFocus ? "shell--chat-focus" : ""} ${state.onboarding ? "shell--onboarding" : ""}">
+      ${
+        !state.migrationBannerDismissed && state.authStatus === "no-auth"
+          ? renderMigrationBanner({
+              onDismiss: () => state.handleMigrationBannerDismiss(),
+              onLearnMore: () => state.handleMigrationLearnMore(),
+              onUpgrade: () => state.handleMigrationUpgrade(),
+            })
+          : nothing
+      }
       <header class="topbar"></header>
 
       <!-- Conversations Sidebar -->

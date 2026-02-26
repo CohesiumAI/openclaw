@@ -12,6 +12,7 @@ export type LoginProps = {
   onUsernameChange: (value: string) => void;
   onPasswordChange: (value: string) => void;
   onSubmit: () => void;
+  onForgotPassword: () => void;
 };
 
 export type TotpChallengeProps = {
@@ -623,8 +624,16 @@ export function renderSetupTotpBackupCodesView(props: SetupTotpBackupCodesProps)
 }
 
 export function renderLoginView(props: LoginProps): TemplateResult {
-  const { username, password, error, loading, onUsernameChange, onPasswordChange, onSubmit } =
-    props;
+  const {
+    username,
+    password,
+    error,
+    loading,
+    onUsernameChange,
+    onPasswordChange,
+    onSubmit,
+    onForgotPassword,
+  } = props;
 
   const handleSubmit = (e: Event) => {
     e.preventDefault();
@@ -676,9 +685,434 @@ export function renderLoginView(props: LoginProps): TemplateResult {
           <button class="login-submit" type="submit" ?disabled=${loading || !username || !password}>
             ${loading ? "Signing in…" : "Sign in"}
           </button>
+
+          <div class="login-footer">
+            <button type="button" class="login-link" @click=${onForgotPassword}>
+              Forgot password?
+            </button>
+          </div>
         </form>
       </div>
     </div>
+
+    <style>
+      .login-footer {
+        margin-top: 1rem;
+        text-align: center;
+      }
+
+      .login-link {
+        background: none;
+        border: none;
+        color: var(--accent-color, #667eea);
+        cursor: pointer;
+        font-size: 0.875rem;
+        text-decoration: underline;
+        padding: 0.25rem 0.5rem;
+      }
+
+      .login-link:hover {
+        color: var(--accent-color-hover, #5568d3);
+      }
+    </style>
+    ${loginBaseStyles}
+  `;
+}
+
+export type OnboardingChoiceProps = {
+  onChoiceSelect: (choice: "quick" | "secure") => void;
+};
+
+export function renderOnboardingChoice(props: OnboardingChoiceProps): TemplateResult {
+  const { onChoiceSelect } = props;
+
+  return html`
+    <div class="login-overlay">
+      <div class="onboarding-choice-card">
+        <div class="login-header">
+          <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect>
+            <path d="M7 11V7a5 5 0 0 1 10 0v4"></path>
+          </svg>
+          <h1>Welcome to OpenClaw</h1>
+        </div>
+        <p class="onboarding-subtitle">Choose your setup mode</p>
+
+        <div class="choice-container">
+          <button
+            class="choice-card quick-setup"
+            @click=${() => onChoiceSelect("quick")}
+          >
+            <div class="choice-icon">⚡</div>
+            <h2>Quick Setup</h2>
+            <p class="choice-desc">Token-based authentication</p>
+            <ul class="choice-features">
+              <li>Fast 1-click setup</li>
+              <li>Single-user mode</li>
+              <li>Local storage only</li>
+            </ul>
+          </button>
+
+          <button
+            class="choice-card secure-setup recommended"
+            @click=${() => onChoiceSelect("secure")}
+          >
+            <div class="choice-icon">🔐</div>
+            <h2>Secure Setup</h2>
+            <span class="recommended-badge">Recommended</span>
+            <p class="choice-desc">User accounts with passwords</p>
+            <ul class="choice-features">
+              <li>Multi-user support</li>
+              <li>2FA & password recovery</li>
+              <li>Cross-browser sync</li>
+              <li>Audit logging</li>
+            </ul>
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <style>
+      .onboarding-choice-card {
+        width: 100%;
+        max-width: 800px;
+        padding: 2rem;
+        border-radius: 12px;
+        background: var(--bg-secondary, #1a1a1a);
+        border: 1px solid var(--border-color, #333);
+        box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+      }
+
+      .onboarding-subtitle {
+        text-align: center;
+        color: var(--text-secondary, #999);
+        margin: 0 0 2rem 0;
+        font-size: 1rem;
+      }
+
+      .choice-container {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 1.5rem;
+        margin-top: 1.5rem;
+      }
+
+      .choice-card {
+        padding: 1.5rem;
+        border: 2px solid var(--border-color, #333);
+        border-radius: 8px;
+        background: var(--bg-primary, #0a0a0a);
+        cursor: pointer;
+        transition: all 0.2s;
+        text-align: left;
+        position: relative;
+      }
+
+      .choice-card:hover {
+        border-color: var(--accent-color, #667eea);
+        transform: translateY(-2px);
+        box-shadow: 0 4px 12px rgba(102, 126, 234, 0.2);
+      }
+
+      .choice-card.recommended {
+        border-color: var(--accent-color, #667eea);
+      }
+
+      .recommended-badge {
+        position: absolute;
+        top: 12px;
+        right: 12px;
+        background: var(--accent-color, #667eea);
+        color: white;
+        padding: 4px 12px;
+        border-radius: 12px;
+        font-size: 12px;
+        font-weight: 600;
+      }
+
+      .choice-icon {
+        font-size: 48px;
+        margin-bottom: 12px;
+      }
+
+      .choice-card h2 {
+        margin: 0 0 8px 0;
+        font-size: 1.25rem;
+        color: var(--text-primary, #fff);
+      }
+
+      .choice-desc {
+        margin: 0 0 12px 0;
+        color: var(--text-secondary, #999);
+        font-size: 0.875rem;
+      }
+
+      .choice-features {
+        margin: 12px 0 0 0;
+        padding-left: 20px;
+        list-style: disc;
+        color: var(--text-secondary, #999);
+        font-size: 0.875rem;
+      }
+
+      .choice-features li {
+        margin-bottom: 6px;
+      }
+    </style>
+    ${loginBaseStyles}
+  `;
+}
+
+export type PasswordRecoveryCredentialsProps = {
+  username: string;
+  recoveryCode: string;
+  error: string | null;
+  loading: boolean;
+  onUsernameInput: (e: Event) => void;
+  onRecoveryCodeInput: (e: Event) => void;
+  onSubmit: () => void;
+  onBack: () => void;
+};
+
+export function renderPasswordRecoveryCredentials(
+  props: PasswordRecoveryCredentialsProps,
+): TemplateResult {
+  const {
+    username,
+    recoveryCode,
+    error,
+    loading,
+    onUsernameInput,
+    onRecoveryCodeInput,
+    onSubmit,
+    onBack,
+  } = props;
+
+  const handleSubmit = (e: Event) => {
+    e.preventDefault();
+    onSubmit();
+  };
+
+  return html`
+    <div class="login-overlay">
+      <div class="login-card">
+        <div class="login-header">
+          <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path>
+            <path d="M9 12l2 2 4-4"></path>
+          </svg>
+          <h1>Reset Password</h1>
+        </div>
+        <p class="login-subtitle">Enter your username and recovery code</p>
+
+        ${error ? html`<div class="login-error">${error}</div>` : ""}
+
+        <form class="login-form" @submit=${handleSubmit}>
+          <label class="login-field">
+            <span class="login-label">Username</span>
+            <input
+              type="text"
+              .value=${username}
+              @input=${onUsernameInput}
+              ?disabled=${loading}
+              autocomplete="username"
+              required
+              autofocus
+            />
+          </label>
+
+          <label class="login-field">
+            <span class="login-label">Recovery Code</span>
+            <input
+              type="text"
+              inputmode="numeric"
+              pattern="[0-9]{8,16}"
+              .value=${recoveryCode}
+              @input=${onRecoveryCodeInput}
+              ?disabled=${loading}
+              placeholder="8-16 digits"
+              required
+            />
+            <span class="login-hint">The recovery code you set during account creation</span>
+          </label>
+
+          <div class="recovery-actions">
+            <button class="login-submit" type="submit" ?disabled=${loading || !username || !recoveryCode}>
+              ${loading ? "Verifying…" : "Continue"}
+            </button>
+            <button class="login-back" type="button" @click=${onBack} ?disabled=${loading}>
+              Back to Login
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+
+    <style>
+      .login-subtitle {
+        text-align: center;
+        color: var(--text-secondary, #999);
+        margin: 0 0 1.5rem 0;
+        font-size: 0.875rem;
+      }
+
+      .login-hint {
+        display: block;
+        margin-top: 0.25rem;
+        font-size: 0.75rem;
+        color: var(--text-secondary, #999);
+      }
+
+      .recovery-actions {
+        display: flex;
+        flex-direction: column;
+        gap: 0.75rem;
+        margin-top: 1.5rem;
+      }
+
+      .login-back {
+        padding: 0.75rem;
+        border-radius: 6px;
+        border: 1px solid var(--border-color, #333);
+        background: transparent;
+        color: var(--text-primary, #fff);
+        cursor: pointer;
+        font-size: 1rem;
+        transition: all 0.2s;
+      }
+
+      .login-back:hover:not(:disabled) {
+        background: var(--bg-tertiary, #2a2a2a);
+      }
+
+      .login-back:disabled {
+        opacity: 0.5;
+        cursor: not-allowed;
+      }
+    </style>
+    ${loginBaseStyles}
+  `;
+}
+
+export type PasswordRecoveryNewPasswordProps = {
+  password: string;
+  passwordConfirm: string;
+  error: string | null;
+  loading: boolean;
+  onPasswordInput: (e: Event) => void;
+  onPasswordConfirmInput: (e: Event) => void;
+  onSubmit: () => void;
+  onCancel: () => void;
+};
+
+export function renderPasswordRecoveryNewPassword(
+  props: PasswordRecoveryNewPasswordProps,
+): TemplateResult {
+  const {
+    password,
+    passwordConfirm,
+    error,
+    loading,
+    onPasswordInput,
+    onPasswordConfirmInput,
+    onSubmit,
+    onCancel,
+  } = props;
+
+  const handleSubmit = (e: Event) => {
+    e.preventDefault();
+    onSubmit();
+  };
+
+  return html`
+    <div class="login-overlay">
+      <div class="login-card">
+        <div class="login-header">
+          <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path>
+            <path d="M9 12l2 2 4-4"></path>
+          </svg>
+          <h1>Set New Password</h1>
+        </div>
+        <p class="login-subtitle">Choose a strong password (minimum 8 characters)</p>
+
+        ${error ? html`<div class="login-error">${error}</div>` : ""}
+
+        <form class="login-form" @submit=${handleSubmit}>
+          <label class="login-field">
+            <span class="login-label">New Password</span>
+            <input
+              type="password"
+              .value=${password}
+              @input=${onPasswordInput}
+              ?disabled=${loading}
+              autocomplete="new-password"
+              minlength="8"
+              required
+              autofocus
+            />
+          </label>
+
+          <label class="login-field">
+            <span class="login-label">Confirm Password</span>
+            <input
+              type="password"
+              .value=${passwordConfirm}
+              @input=${onPasswordConfirmInput}
+              ?disabled=${loading}
+              autocomplete="new-password"
+              minlength="8"
+              required
+            />
+          </label>
+
+          <div class="recovery-actions">
+            <button class="login-submit" type="submit" ?disabled=${loading || !password || !passwordConfirm}>
+              ${loading ? "Resetting…" : "Reset Password"}
+            </button>
+            <button class="login-back" type="button" @click=${onCancel} ?disabled=${loading}>
+              Cancel
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+
+    <style>
+      .login-subtitle {
+        text-align: center;
+        color: var(--text-secondary, #999);
+        margin: 0 0 1.5rem 0;
+        font-size: 0.875rem;
+      }
+
+      .recovery-actions {
+        display: flex;
+        flex-direction: column;
+        gap: 0.75rem;
+        margin-top: 1.5rem;
+      }
+
+      .login-back {
+        padding: 0.75rem;
+        border-radius: 6px;
+        border: 1px solid var(--border-color, #333);
+        background: transparent;
+        color: var(--text-primary, #fff);
+        cursor: pointer;
+        font-size: 1rem;
+        transition: all 0.2s;
+      }
+
+      .login-back:hover:not(:disabled) {
+        background: var(--bg-tertiary, #2a2a2a);
+      }
+
+      .login-back:disabled {
+        opacity: 0.5;
+        cursor: not-allowed;
+      }
+    </style>
     ${loginBaseStyles}
   `;
 }

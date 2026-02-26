@@ -44,7 +44,9 @@ export type AuthStatus =
   | "no-auth"
   | "totp-challenge"
   | "needs-setup"
-  | "setup-totp-prompt";
+  | "setup-totp-prompt"
+  | "onboarding-choice"
+  | "password-recovery";
 
 export type AppViewState = {
   settings: UiSettings;
@@ -96,6 +98,23 @@ export type AppViewState = {
   pwChangeSuccess: boolean;
   pwChangeLoading: boolean;
   handlePasswordChange: () => Promise<void>;
+  /** Password recovery (forgot password) state */
+  recoveryUsername: string;
+  recoveryCode: string;
+  recoveryPassword: string;
+  recoveryPasswordConfirm: string;
+  recoveryError: string | null;
+  recoveryLoading: boolean;
+  recoveryStep: "credentials" | "new-password";
+  handleForgotPassword: () => void;
+  handleRecoveryCredentialsSubmit: () => void;
+  handleRecoveryPasswordSubmit: () => Promise<void>;
+  handleRecoveryCancel: () => void;
+  /** Onboarding choice handlers */
+  handleOnboardingChoice: (choice: "quick" | "secure") => void;
+  /** Migration banner state */
+  showMigrationBanner: boolean;
+  migrationBannerDismissed: boolean;
   theme: ThemeMode;
   themeResolved: "light" | "dark";
   hello: GatewayHelloOk | null;

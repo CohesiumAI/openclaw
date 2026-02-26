@@ -85,6 +85,8 @@ import {
   changePassword,
   login as authLogin,
   logout as authLogout,
+  quickSetup,
+  resetPassword,
   setupFirstUser,
   setupTotp,
   submitTotpBackup,
@@ -156,6 +158,17 @@ export class OpenClawApp extends LitElement {
   @state() pwChangeError: string | null = null;
   @state() pwChangeSuccess = false;
   @state() pwChangeLoading = false;
+  @state() recoveryUsername = "";
+  @state() recoveryCode = "";
+  @state() recoveryPassword = "";
+  @state() recoveryPasswordConfirm = "";
+  @state() recoveryError: string | null = null;
+  @state() recoveryLoading = false;
+  @state() recoveryStep: "credentials" | "new-password" = "credentials";
+  @state() showMigrationBanner = false;
+  @state() migrationBannerDismissed =
+    typeof localStorage !== "undefined" &&
+    localStorage.getItem("openclaw.migration-banner-dismissed") === "1";
   @state() theme: ThemeMode = this.settings.theme ?? "system";
   @state() themeResolved: ResolvedTheme = "dark";
   @state() hello: GatewayHelloOk | null = null;
@@ -613,6 +626,159 @@ export class OpenClawApp extends LitElement {
       startSessionRefresh(this);
     } else if (result.status === "error") {
       this.setupError = result.message;
+    }
+  }
+
+  handleOnboardingChoice(choice: "quick" | "secure") {
+    if (choice === "quick") {
+      // Proceed with Quick Setup (token-based)
+      void this.proceedWithQuickSetup();
+    } else {
+      // Transition to Secure Setup (existing setup wizard)
+      this.authStatus = "needs-setup";
+    }
+  }
+
+  async proceedWithQuickSetup() {
+    try {
+      this.authStatus = "loading";
+      const result = await quickSetup(this.basePath);
+
+      if (!result.ok) {
+        this.authStatus = "unauthenticated";
+        this.loginError = result.error || "Quick setup failed";
+        return;
+      }
+
+      // Quick setup succeeded, token is now saved server-side
+      // Gateway needs to restart to apply the new configuration
+      // For now, we'll ask the user to reload the page
+      // eslint-disable-next-line no-alert
+      alert(
+        "Quick setup complete! The gateway configuration has been updated.\n\n" +
+          "Please restart the gateway with: openclaw gateway run\n\n" +
+          "Then reload this page to connect.",
+      );
+
+      // Reset to unauthenticated to show login instructions
+      this.authStatus = "unauthenticated";
+      this.loginError = null;
+    } catch (err) {
+      this.authStatus = "unauthenticated";
+      this.loginError = String(err);
+    }
+  }
+
+  handleForgotPassword() {
+    this.authStatus = "password-recovery";
+    this.recoveryStep = "credentials";
+    this.recoveryUsername = "";
+    this.recoveryCode = "";
+    this.recoveryPassword = "";
+    this.recoveryPasswordConfirm = "";
+    this.recoveryError = null;
+    this.recoveryLoading = false;
+  }
+
+  handleRecoveryCredentialsSubmit() {
+    // Validation
+    if (!this.recoveryUsername.trim()) {
+      this.recoveryError = "Username is required";
+      return;
+    }
+
+    if (!/^\d{8,16}$/.test(this.recoveryCode)) {
+      this.recoveryError = "Recovery code must be 8-16 digits";
+      return;
+    }
+
+    // Move to next step (password will be verified on final submit)
+    this.recoveryStep = "new-password";
+    this.recoveryError = null;
+  }
+
+  async handleRecoveryPasswordSubmit() {
+    // Validation
+    if (this.recoveryPassword.length < 8) {
+      this.recoveryError = "Password must be at least 8 characters";
+      return;
+    }
+
+    if (this.recoveryPassword !== this.recoveryPasswordConfirm) {
+      this.recoveryError = "Passwords do not match";
+      return;
+    }
+
+    this.recoveryLoading = true;
+    this.recoveryError = null;
+
+    try {
+      const result = await resetPassword(
+        this.recoveryUsername,
+        this.recoveryCode,
+        this.recoveryPassword,
+        this.basePath,
+      );
+
+      if (!result.ok) {
+        this.recoveryError = result.error || "Password reset failed";
+        return;
+      }
+
+      // Success - attempt auto-login with new credentials
+      this.loginUsername = this.recoveryUsername;
+      this.loginPassword = this.recoveryPassword;
+      this.recoveryUsername = "";
+      this.recoveryCode = "";
+      this.recoveryPassword = "";
+      this.recoveryPasswordConfirm = "";
+
+      await this.handleLogin();
+    } catch (err) {
+      this.recoveryError = String(err);
+    } finally {
+      this.recoveryLoading = false;
+    }
+  }
+
+  handleRecoveryCancel() {
+    this.authStatus = "unauthenticated";
+    this.recoveryError = null;
+    this.recoveryUsername = "";
+    this.recoveryCode = "";
+    this.recoveryPassword = "";
+    this.recoveryPasswordConfirm = "";
+  }
+
+  handleMigrationBannerDismiss() {
+    this.showMigrationBanner = false;
+    this.migrationBannerDismissed = true;
+
+    // Persist dismissal in localStorage
+    if (typeof localStorage !== "undefined") {
+      localStorage.setItem("openclaw.migration-banner-dismissed", "1");
+    }
+  }
+
+  handleMigrationLearnMore() {
+    // Open migration guide in new tab/window
+    const docsPath = `${this.basePath}/docs/MIGRATION-UI-V2.md`;
+    window.open(docsPath, "_blank");
+  }
+
+  handleMigrationUpgrade() {
+    // Show instructions modal
+    // eslint-disable-next-line no-alert
+    const confirmed = confirm(
+      "To upgrade to secure mode:\n\n" +
+        "1. Run: openclaw user create\n" +
+        "2. Run: openclaw config set gateway.auth.mode password\n" +
+        "3. Restart the gateway\n\n" +
+        "Would you like to open the migration guide?",
+    );
+
+    if (confirmed) {
+      this.handleMigrationLearnMore();
     }
   }
 

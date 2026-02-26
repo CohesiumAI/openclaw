@@ -127,6 +127,9 @@ async function checkAuthAndConnect(host: LifecycleHost) {
     const caps = await fetchCapabilities(host.basePath);
     if (caps.needsSetup) {
       host.authStatus = "needs-setup";
+    } else if (caps.authMode === "token" && !caps.hasUsers) {
+      // Fresh install: offer choice between Quick Setup (token) and Secure Setup (password)
+      host.authStatus = "onboarding-choice";
     } else if (caps.authMode === "token") {
       // Token-mode gateways authenticate via WS handshake, not HTTP sessions.
       // Skip the login form and connect directly.

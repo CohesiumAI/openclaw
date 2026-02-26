@@ -200,7 +200,7 @@ export async function submitTotpBackup(
 /** Fetch gateway capabilities (feature flags). */
 export async function fetchCapabilities(
   basePath = "",
-): Promise<{ needsSetup?: boolean; hasUserManagement?: boolean; has2fa?: boolean; authMode?: string }> {
+): Promise<{ needsSetup?: boolean; hasUserManagement?: boolean; has2fa?: boolean; authMode?: string; hasUsers?: boolean }> {
   try {
     const res = await fetch(`${basePath}/auth/capabilities`, {
       credentials: "same-origin",
@@ -211,6 +211,7 @@ export async function fetchCapabilities(
         hasUserManagement?: boolean;
         has2fa?: boolean;
         authMode?: string;
+        hasUsers?: boolean;
       };
     }
     return {};
@@ -247,6 +248,31 @@ export async function setupFirstUser(
   }
 }
 
+/** Quick setup: generate token and configure token-based auth (no user creation). */
+export async function quickSetup(
+  basePath = "",
+): Promise<{ ok: boolean; token?: string; error?: string }> {
+  try {
+    const res = await fetch(`${basePath}/auth/quick-setup`, {
+      method: "POST",
+      credentials: "same-origin",
+      headers: { "Content-Type": "application/json" },
+    });
+    const data = (await res.json()) as {
+      ok?: boolean;
+      token?: string;
+      message?: string;
+      error?: { message: string; type: string; details?: string };
+    };
+    if (res.ok && data.ok && data.token) {
+      return { ok: true, token: data.token };
+    }
+    return { ok: false, error: data.error?.message ?? "Quick setup failed" };
+  } catch {
+    return { ok: false, error: "Network error" };
+  }
+}
+
 /** Change password for the current authenticated user. */
 export async function changePassword(
   currentPassword: string,
@@ -270,6 +296,30 @@ export async function changePassword(
     }
     const data = (await res.json()) as { error?: { message: string } };
     return { ok: false, error: data.error?.message ?? "Password change failed" };
+  } catch {
+    return { ok: false, error: "Network error" };
+  }
+}
+
+/** Reset password using recovery code (forgot password flow). */
+export async function resetPassword(
+  username: string,
+  recoveryCode: string,
+  newPassword: string,
+  basePath = "",
+): Promise<{ ok: boolean; error?: string }> {
+  try {
+    const res = await fetch(`${basePath}/auth/reset-password`, {
+      method: "POST",
+      credentials: "same-origin",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ username, recoveryCode, newPassword }),
+    });
+    if (res.ok) {
+      return { ok: true };
+    }
+    const data = (await res.json()) as { error?: { message: string } };
+    return { ok: false, error: data.error?.message ?? "Password reset failed" };
   } catch {
     return { ok: false, error: "Network error" };
   }
