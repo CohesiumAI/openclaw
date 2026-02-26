@@ -12,7 +12,7 @@ import { renderConfigForm, SECTION_META } from "./config-form.ts";
 
 // -- Types ------------------------------------------------------------------
 
-type SettingsCategory = "quick" | "gateway-section" | "security";
+type SettingsCategory = "quick" | "gateway-section" | "security" | "admin";
 
 type SidebarEntry = {
   id: string;
@@ -158,6 +158,11 @@ const icons = {
       />
     </svg>
   `,
+  admin: html`
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+      <path d="M12 15v2m-6 4h12a2 2 0 0 0 2-2v-6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v6a2 2 0 0 0 2 2zm10-10V7a4 4 0 0 0-8 0v4h8z" />
+    </svg>
+  `,
 };
 
 // Map gateway section keys to icons
@@ -176,11 +181,16 @@ const sectionIconMap: Record<string, TemplateResult> = {
 // -- Helpers ----------------------------------------------------------------
 
 /** Build sidebar entries from schema sections */
-function buildSidebarEntries(schema: JsonSchema | null): SidebarEntry[] {
+function buildSidebarEntries(schema: JsonSchema | null, state?: AppViewState): SidebarEntry[] {
   const entries: SidebarEntry[] = [
     { id: "quick", label: "Quick Settings", icon: icons.bolt, category: "quick" },
     { id: "security", label: "Security", icon: icons.auth, category: "security" },
   ];
+
+  // Admin panel — only visible for admin users
+  if (state?.authUser?.role === "admin") {
+    entries.push({ id: "admin", label: "Administration", icon: icons.admin, category: "admin" });
+  }
 
   if (!schema || !schema.properties) {
     return entries;
@@ -666,6 +676,367 @@ function renderSecuritySettings(state: AppViewState) {
   `;
 }
 
+// -- Render: Admin Panel ----------------------------------------------------
+
+type AdminUserRow = {
+  username: string;
+  role: string;
+  sessionCount: number;
+  lastActivity: number | null;
+};
+
+type AdminSessionRow = {
+  sessionKey: string;
+  sessionId?: string;
+  ownerId?: string;
+  updatedAt: number | null;
+  title?: string;
+};
+
+type AdminPanelData = {
+  users: AdminUserRow[];
+  unownedSessions: AdminSessionRow[];
+} | null;
+
+/** Cached admin panel data, keyed to avoid stale closures */
+let _adminData: AdminPanelData = null;
+let _adminLoading = false;
+let _adminError = "";
+let _adminExpandedUser = "";
+
+function formatRelativeTime(ts: number | null): string {
+  if (!ts) return "—";
+  const diff = Date.now() - ts;
+  if (diff < 60_000) return "just now";
+  if (diff < 3_600_000) return `${Math.floor(diff / 60_000)}m ago`;
+  if (diff < 86_400_000) return `${Math.floor(diff / 3_600_000)}h ago`;
+  return `${Math.floor(diff / 86_400_000)}d ago`;
+}
+
+async function loadAdminData(state: AppViewState): Promise<void> {
+  if (_adminLoading || !state.client) return;
+  _adminLoading = true;
+  _adminError = "";
+  state.requestUpdate?.();
+  try {
+    const res = await state.client.request("admin.sessions.list", {});
+    _adminData = res as AdminPanelData;
+    _adminError = "";
+  } catch (err: unknown) {
+    _adminError = err instanceof Error ? err.message : String(err);
+    _adminData = null;
+  } finally {
+    _adminLoading = false;
+    state.requestUpdate?.();
+  }
+}
+
+async function adminDeleteSession(state: AppViewState, key: string): Promise<void> {
+  if (!state.client) return;
+  try {
+    await state.client.request("sessions.delete", { key, deleteTranscript: true });
+    // Reload admin data
+    await loadAdminData(state);
+  } catch (err: unknown) {
+    _adminError = err instanceof Error ? err.message : String(err);
+    state.requestUpdate?.();
+  }
+}
+
+/** Render the Administration panel (admin-only) */
+function renderAdminPanel(state: AppViewState) {
+  // Trigger load on first render
+  if (!_adminData && !_adminLoading && !_adminError) {
+    void loadAdminData(state);
+  }
+
+  const refresh = () => {
+    _adminData = null;
+    void loadAdminData(state);
+  };
+
+  return html`
+    <div class="admin-panel">
+      <div class="admin-panel__header">
+        <h3 class="admin-panel__title">User Sessions Overview</h3>
+        <button class="admin-panel__refresh" @click=${refresh} ?disabled=${_adminLoading}>
+          ${_adminLoading ? "Loading..." : "Refresh"}
+        </button>
+      </div>
+
+      ${_adminError ? html`<div class="security-alert security-alert--error">${_adminError}</div>` : nothing}
+
+      ${_adminData ? html`
+        <!-- Users table -->
+        <table class="admin-table">
+          <thead>
+            <tr>
+              <th>User</th>
+              <th>Role</th>
+              <th>Sessions</th>
+              <th>Last Activity</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${_adminData.users.map((u) => html`
+              <tr
+                class="admin-table__row ${_adminExpandedUser === u.username ? "expanded" : ""}"
+                @click=${() => {
+                  _adminExpandedUser = _adminExpandedUser === u.username ? "" : u.username;
+                  // Lazy-load session detail if needed
+                  state.requestUpdate?.();
+                }}
+              >
+                <td class="admin-table__user">
+                  <span class="admin-table__expand-icon">${_adminExpandedUser === u.username ? "▼" : "▶"}</span>
+                  ${u.username}
+                </td>
+                <td><span class="admin-badge admin-badge--${u.role}">${u.role}</span></td>
+                <td>${u.sessionCount}</td>
+                <td>${formatRelativeTime(u.lastActivity)}</td>
+              </tr>
+              ${_adminExpandedUser === u.username ? renderUserSessions(state, u.username) : nothing}
+            `)}
+          </tbody>
+        </table>
+
+        ${_adminData.unownedSessions.length > 0 ? html`
+          <div class="admin-panel__section">
+            <h4 class="admin-panel__subtitle">Legacy Sessions (no owner)</h4>
+            <table class="admin-table admin-table--compact">
+              <thead>
+                <tr>
+                  <th>Session Key</th>
+                  <th>Last Activity</th>
+                  <th></th>
+                </tr>
+              </thead>
+              <tbody>
+                ${_adminData.unownedSessions.slice(0, 50).map((s) => html`
+                  <tr>
+                    <td class="admin-table__key">${s.title || s.sessionKey}</td>
+                    <td>${formatRelativeTime(s.updatedAt)}</td>
+                    <td>
+                      <button class="admin-table__delete" @click=${(e: Event) => {
+                        e.stopPropagation();
+                        if (confirm(`Delete session "${s.sessionKey}"?`)) {
+                          void adminDeleteSession(state, s.sessionKey);
+                        }
+                      }}>Delete</button>
+                    </td>
+                  </tr>
+                `)}
+              </tbody>
+            </table>
+            ${_adminData.unownedSessions.length > 50 ? html`<p class="muted">...and ${_adminData.unownedSessions.length - 50} more</p>` : nothing}
+          </div>
+        ` : nothing}
+      ` : nothing}
+
+      ${!_adminData && !_adminLoading ? html`<p class="muted">No data loaded.</p>` : nothing}
+    </div>
+
+    <style>
+      .admin-panel { max-width: 700px; }
+      .admin-panel__header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        margin-bottom: 1rem;
+      }
+      .admin-panel__title {
+        margin: 0;
+        font-size: 1rem;
+        font-weight: 600;
+        color: var(--text-primary, #fff);
+      }
+      .admin-panel__subtitle {
+        margin: 1.5rem 0 0.5rem;
+        font-size: 0.875rem;
+        font-weight: 600;
+        color: var(--text-secondary, #aaa);
+      }
+      .admin-panel__refresh {
+        padding: 0.375rem 0.75rem;
+        border-radius: 6px;
+        border: 1px solid var(--border-color, #333);
+        background: transparent;
+        color: var(--text-secondary, #aaa);
+        font-size: 0.8125rem;
+        cursor: pointer;
+        transition: border-color 0.15s, color 0.15s;
+      }
+      .admin-panel__refresh:hover:not(:disabled) {
+        border-color: var(--accent-color, #3b82f6);
+        color: var(--text-primary, #fff);
+      }
+      .admin-panel__refresh:disabled { opacity: 0.5; cursor: not-allowed; }
+
+      .admin-table {
+        width: 100%;
+        border-collapse: collapse;
+        font-size: 0.8125rem;
+      }
+      .admin-table th {
+        text-align: left;
+        padding: 0.5rem 0.75rem;
+        font-weight: 500;
+        color: var(--text-tertiary, #777);
+        border-bottom: 1px solid var(--border-color, #333);
+        font-size: 0.75rem;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+      }
+      .admin-table td {
+        padding: 0.5rem 0.75rem;
+        color: var(--text-primary, #fff);
+        border-bottom: 1px solid var(--border-subtle, #222);
+      }
+      .admin-table__row {
+        cursor: pointer;
+        transition: background 0.1s;
+      }
+      .admin-table__row:hover { background: var(--bg-hover, rgba(255,255,255,0.03)); }
+      .admin-table__row.expanded { background: var(--bg-hover, rgba(255,255,255,0.05)); }
+      .admin-table__user {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+        font-weight: 500;
+      }
+      .admin-table__expand-icon {
+        font-size: 0.625rem;
+        width: 1rem;
+        color: var(--text-tertiary, #777);
+      }
+      .admin-table__key {
+        max-width: 300px;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+      .admin-table__delete {
+        padding: 0.25rem 0.5rem;
+        border-radius: 4px;
+        border: 1px solid rgba(239, 68, 68, 0.3);
+        background: transparent;
+        color: #ef4444;
+        font-size: 0.75rem;
+        cursor: pointer;
+        transition: background 0.15s;
+      }
+      .admin-table__delete:hover { background: rgba(239, 68, 68, 0.1); }
+      .admin-table--compact td { padding: 0.375rem 0.75rem; }
+
+      .admin-badge {
+        display: inline-block;
+        padding: 0.125rem 0.5rem;
+        border-radius: 9999px;
+        font-size: 0.6875rem;
+        font-weight: 500;
+      }
+      .admin-badge--admin {
+        background: rgba(139, 92, 246, 0.15);
+        color: #a78bfa;
+        border: 1px solid rgba(139, 92, 246, 0.3);
+      }
+      .admin-badge--operator {
+        background: rgba(59, 130, 246, 0.15);
+        color: #60a5fa;
+        border: 1px solid rgba(59, 130, 246, 0.3);
+      }
+      .admin-badge--read-only {
+        background: rgba(156, 163, 175, 0.15);
+        color: #9ca3af;
+        border: 1px solid rgba(156, 163, 175, 0.3);
+      }
+
+      .admin-sessions-detail {
+        padding: 0.5rem 0.75rem 0.5rem 2.5rem;
+        background: var(--bg-secondary, rgba(0,0,0,0.2));
+      }
+      .admin-sessions-detail td {
+        padding: 0.375rem 0.5rem;
+        font-size: 0.75rem;
+        color: var(--text-secondary, #aaa);
+        border-bottom: 1px solid var(--border-subtle, #1a1a1a);
+      }
+    </style>
+  `;
+}
+
+function renderUserSessions(state: AppViewState, username: string) {
+  if (!_adminData) return nothing;
+
+  // Find sessions for this user across all data
+  const allSessions: AdminSessionRow[] = [];
+  // Sessions from users that match this username are embedded in the store
+  // We need to re-query or filter from existing data.
+  // Since admin.sessions.list returns per-user aggregation but not per-user session lists,
+  // we use admin.sessions.detail for the expanded view.
+
+  // Use a simple async load pattern
+  const detailKey = `_adminDetail_${username}`;
+  const cached = (state as Record<string, unknown>)[detailKey] as AdminSessionRow[] | undefined;
+
+  if (!cached) {
+    if (!state.client) return nothing;
+    // Trigger async load
+    void (async () => {
+      try {
+        const res = (await state.client!.request("admin.sessions.detail", { username })) as {
+          sessions: AdminSessionRow[];
+        };
+        (state as Record<string, unknown>)[detailKey] = res.sessions;
+        state.requestUpdate?.();
+      } catch {
+        (state as Record<string, unknown>)[detailKey] = [];
+        state.requestUpdate?.();
+      }
+    })();
+
+    return html`
+      <tr class="admin-sessions-detail">
+        <td colspan="4"><span class="dot-pulse"></span> Loading sessions...</td>
+      </tr>
+    `;
+  }
+
+  if (cached.length === 0) {
+    return html`
+      <tr class="admin-sessions-detail">
+        <td colspan="4" class="muted">No sessions found</td>
+      </tr>
+    `;
+  }
+
+  return html`
+    ${cached.slice(0, 30).map((s) => html`
+      <tr class="admin-sessions-detail">
+        <td colspan="2" class="admin-table__key">${s.title || s.sessionKey}</td>
+        <td>${formatRelativeTime(s.updatedAt)}</td>
+        <td>
+          <button class="admin-table__delete" @click=${(e: Event) => {
+            e.stopPropagation();
+            if (confirm(`Delete session "${s.sessionKey}"?`)) {
+              void (async () => {
+                await adminDeleteSession(state, s.sessionKey);
+                // Clear cached detail
+                delete (state as Record<string, unknown>)[detailKey];
+              })();
+            }
+          }}>Delete</button>
+        </td>
+      </tr>
+    `)}
+    ${cached.length > 30 ? html`
+      <tr class="admin-sessions-detail">
+        <td colspan="4" class="muted">...and ${cached.length - 30} more sessions</td>
+      </tr>
+    ` : nothing}
+  `;
+}
+
 // -- Render: Main -----------------------------------------------------------
 
 /** Unified settings panel — sidebar + content area */
@@ -676,7 +1047,7 @@ export function renderUnifiedSettings(state: AppViewState) {
 
   const prefill = state.settingsPrefill;
   const schema = prefill.schema as JsonSchema | null;
-  const sidebarEntries = buildSidebarEntries(schema);
+  const sidebarEntries = buildSidebarEntries(schema, state);
   const modifiedCount = countModifiedFields(prefill);
 
   const navigateTo = (tab: Tab) => {
@@ -695,6 +1066,9 @@ export function renderUnifiedSettings(state: AppViewState) {
     }
     if (activeEntry.category === "security") {
       return renderSecuritySettings(state);
+    }
+    if (activeEntry.category === "admin") {
+      return renderAdminPanel(state);
     }
     if (activeEntry.category === "gateway-section" && activeEntry.sectionKey) {
       return renderGatewaySection(state, activeEntry.sectionKey);

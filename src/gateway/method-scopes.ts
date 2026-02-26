@@ -75,6 +75,11 @@ const METHOD_SCOPE_GROUPS: Record<OperatorScope, readonly string[]> = {
     "talk.config",
     "agents.files.list",
     "agents.files.get",
+    "user.preferences.get",
+    "user.projects.list",
+    "user.projects.files.get",
+    "chat.files.list",
+    "chat.files.get",
   ],
   [WRITE_SCOPE]: [
     "send",
@@ -93,6 +98,14 @@ const METHOD_SCOPE_GROUPS: Record<OperatorScope, readonly string[]> = {
     "chat.abort",
     "browser.request",
     "push.test",
+    "user.preferences.set",
+    "user.projects.create",
+    "user.projects.update",
+    "user.projects.delete",
+    "user.projects.files.put",
+    "user.projects.files.delete",
+    "chat.files.put",
+    "chat.files.delete",
   ],
   [ADMIN_SCOPE]: [
     "channels.logout",
@@ -116,10 +129,11 @@ const METHOD_SCOPE_GROUPS: Record<OperatorScope, readonly string[]> = {
     "set-heartbeats",
     "system-event",
     "agents.files.set",
+    "user.sessions.revoke-all",
   ],
 };
 
-const ADMIN_METHOD_PREFIXES = ["exec.approvals.", "config.", "wizard.", "update."] as const;
+const ADMIN_METHOD_PREFIXES = ["admin.", "exec.approvals.", "config.", "wizard.", "update."] as const;
 
 const METHOD_SCOPE_BY_NAME = new Map<string, OperatorScope>(
   Object.entries(METHOD_SCOPE_GROUPS).flatMap(([scope, methods]) =>

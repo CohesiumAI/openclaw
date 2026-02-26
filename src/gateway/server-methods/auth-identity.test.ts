@@ -95,8 +95,8 @@ describe("canSeeAllSessions", () => {
     expect(canSeeAllSessions(null)).toBe(true);
   });
 
-  it("returns true for admin role", () => {
-    expect(canSeeAllSessions(fakeClient({ authUser: "root", authRole: "admin" }))).toBe(true);
+  it("returns false for admin role (admins use admin.sessions.list)", () => {
+    expect(canSeeAllSessions(fakeClient({ authUser: "root", authRole: "admin" }))).toBe(false);
   });
 
   it("returns false for operator role", () => {

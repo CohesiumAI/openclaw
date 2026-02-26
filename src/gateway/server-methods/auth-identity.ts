@@ -16,13 +16,12 @@ export function resolveAuthIdentity(
   return { username, role: wsClient?.authRole ?? "operator" };
 }
 
-/** Returns true when no per-user filtering should apply (token mode or admin role). */
+/** Returns true when no per-user filtering should apply (token mode only — no authenticated user). */
 export function canSeeAllSessions(
   client: GatewayRequestHandlerOptions["client"],
 ): boolean {
   const id = resolveAuthIdentity(client);
-  if (!id) return true; // token mode — no filtering
-  return id.role === "admin";
+  return !id; // true only in token mode (no authenticated user) — admins use admin.sessions.list
 }
 
 /**

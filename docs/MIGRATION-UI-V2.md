@@ -51,7 +51,7 @@ Les **sessions de chat** sont stockées dans `~/.openclaw/agents/<agentId>/sessi
 
 - ✅ Chaque session a un champ `ownerId` qui stocke le username du créateur
 - ✅ Un **opérateur** ne voit que ses propres sessions + les sessions legacy (sans `ownerId`)
-- ✅ Un **admin** voit et peut modifier **toutes** les sessions
+- ✅ Un **admin** voit ses propres sessions dans la sidebar, et accède à un **panneau Administration** (Settings) pour gérer les sessions de tous les utilisateurs (métadonnées seules)
 - ✅ Les sessions **legacy** (créées avant l'isolation) restent visibles par tous
 - ✅ Les chats **survivent aux updates** et changements d'auth mode
 
@@ -62,7 +62,7 @@ Les **sessions de chat** sont stockées dans `~/.openclaw/agents/<agentId>/sessi
 | `token` / `none` | Toutes les sessions visibles (pas de filtrage) |
 | `password` (legacy plaintext) | Toutes les sessions visibles |
 | `password` (hashed credentials, operator) | Propres sessions + sessions legacy uniquement |
-| `password` (hashed credentials, admin) | Toutes les sessions |
+| `password` (hashed credentials, admin) | Sidebar : propres sessions + legacy. Panneau admin : métadonnées de toutes les sessions |
 
 > **Note** : le stockage fichier reste global. L'isolation est appliquée au niveau gateway (filtrage `sessions.list`, guards sur `sessions.patch/delete`, `chat.history/send`).
 
@@ -279,6 +279,7 @@ if (!authUser) {
 | Projects sync (serveur)             | ❌         | ❌                | ✅                |
 | Session attachments (serveur)       | ❌         | ❌                | ✅                |
 | **Per-user session isolation**      | ❌         | ❌                | ✅                |
+| **Admin session management panel** | ❌         | ❌                | ✅                |
 | Audit logging                       | ⚠️ Minimal | ⚠️ Minimal        | ✅ Complet        |
 | Rate limiting                       | ✅         | ✅                | ✅                |
 | CSP / Security headers              | ✅         | ✅                | ✅                |
@@ -398,7 +399,7 @@ Tests unitaires couvrant les chemins de rétrocompatibilité (implémentés) :
 3. **Fail-open** — Le gateway ne crash JAMAIS à cause des nouveaux modules
 4. **Isolation par mode** — Token mode = ZERO side effects
 5. **Migration automatique** — Config legacy auto-migrée au boot
-6. **Isolation sessions per-user** — En mode hashed credentials, chaque utilisateur ne voit que ses propres sessions (admins voient tout, sessions legacy restent visibles par tous)
+6. **Isolation sessions per-user** — En mode hashed credentials, chaque utilisateur ne voit que ses propres sessions dans la sidebar (admins inclus). Les admins accèdent à un panneau dédié pour gérer les sessions de tous (métadonnées seules, sessions legacy restent visibles par tous)
 
 ### ⚠️ Points à Clarifier dans la PR
 

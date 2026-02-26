@@ -3,6 +3,7 @@ import { consumeControlPlaneWriteBudget } from "./control-plane-rate-limit.js";
 import { ADMIN_SCOPE, authorizeOperatorScopesForMethod } from "./method-scopes.js";
 import { ErrorCodes, errorShape } from "./protocol/index.js";
 import { isRoleAuthorizedForMethod, parseGatewayRole } from "./role-policy.js";
+import { adminSessionsHandlers } from "./server-methods/admin-sessions.js";
 import { agentHandlers } from "./server-methods/agent.js";
 import { agentsHandlers } from "./server-methods/agents.js";
 import { browserHandlers } from "./server-methods/browser.js";
@@ -100,6 +101,7 @@ export const coreGatewayHandlers: GatewayRequestHandlers = {
   ...userProjectsHandlers,
   ...chatFilesHandlers,
   ...userSessionsHandlers,
+  ...adminSessionsHandlers,
 };
 
 export async function handleGatewayRequest(

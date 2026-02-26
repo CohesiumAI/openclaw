@@ -729,3 +729,47 @@ Chat sessions are now isolated per user in hashed credentials mode. Previously, 
 - `src/gateway/server-methods/user-preferences.ts` — refactored to shared helper
 - `src/gateway/server-methods/user-projects.ts` — refactored to shared helper
 - `src/gateway/server-methods/user-sessions.ts` — refactored to shared helper
+
+---
+
+## Commit — 2026-02-26
+
+### feat(ui): admin panel + personal sidebar — admins see only own sessions in sidebar
+
+#### Problem
+
+After per-user session isolation, admins still saw **all** sessions in the sidebar (mixed with other users' sessions), with no way to distinguish their own from others'.
+
+#### Changes
+
+##### Backend
+
+- **`auth-identity.ts`**: `canSeeAllSessions()` now returns `true` only in token mode. Admins are filtered like operators in the sidebar.
+- **`sessions.ts`**: `sessions.list` filters for admins too (own sessions + legacy only).
+- **`admin-sessions.ts`** (new): two admin-only WS handlers:
+  - `admin.sessions.list` — returns per-user aggregation (`AdminUserRow[]`) + unowned sessions. Metadata only (no content/previews).
+  - `admin.sessions.detail` — returns sessions for a specific user (metadata only).
+- **`method-scopes.ts`**: added `"admin."` prefix to `ADMIN_METHOD_PREFIXES`. Classified `user.preferences.*`, `user.projects.*`, `chat.files.*`, `user.sessions.*` methods (fixes pre-existing test failure).
+- **`server-methods.ts`**: registered `adminSessionsHandlers` in `coreGatewayHandlers`.
+
+##### Frontend
+
+- **`settings-unified.ts`**: new "Administration" category in settings modal (visible for admin role only):
+  - Users table: username, role, session count, last activity
+  - Expandable: click a user → session list (key, title, date)
+  - Delete button per session
+  - "Legacy Sessions" section for unowned sessions
+
+##### Tests
+
+- `auth-identity.test.ts`: updated `canSeeAllSessions(admin)` → `false`
+- `method-scopes.test.ts`: now passes (all core handlers classified)
+
+#### Files Changed (6)
+
+- `src/gateway/server-methods/auth-identity.ts` — `canSeeAllSessions` behavior change
+- `src/gateway/server-methods/sessions.ts` — admin filtering in `sessions.list`
+- `src/gateway/server-methods/admin-sessions.ts` — **new** admin handlers
+- `src/gateway/server-methods.ts` — handler registration
+- `src/gateway/method-scopes.ts` — scope classifications
+- `ui/src/ui/views/settings-unified.ts` — admin panel UI

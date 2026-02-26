@@ -294,12 +294,11 @@ export const sessionsHandlers: GatewayRequestHandlers = {
     const cfg = loadConfig();
     const { storePath, store } = loadCombinedSessionStoreForGateway(cfg);
 
-    // Per-user filtering: token mode and admin see all, others see only own + legacy sessions
+    // Per-user filtering: token mode sees all, authenticated users see only own + legacy sessions
     const identity = resolveAuthIdentity(client);
-    const effectiveStore =
-      !identity || identity.role === "admin"
-        ? store
-        : filterStoreByOwner(store, identity.username);
+    const effectiveStore = !identity
+      ? store
+      : filterStoreByOwner(store, identity.username);
 
     const result = listSessionsFromStore({
       cfg,

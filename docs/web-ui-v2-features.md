@@ -597,8 +597,9 @@ In hashed credentials mode, chat sessions are isolated per user — each user ca
 #### How It Works
 
 - **`ownerId` field**: every `SessionEntry` gains an optional `ownerId?: string` field. New sessions are stamped with the authenticated username at creation time via `MsgContext.GatewayAuthUser`.
-- **Filtering**: `sessions.list` returns only sessions owned by the current user (or legacy sessions without `ownerId`). Admins see all sessions.
-- **Ownership guards**: `sessions.preview`, `sessions.patch`, `sessions.delete`, `sessions.reset`, `sessions.compact`, `chat.history`, and `chat.send` all verify ownership before proceeding. Unauthorized access returns a `FORBIDDEN` error.
+- **Filtering**: `sessions.list` returns only sessions owned by the current user (or legacy sessions without `ownerId`). This includes admins — they see their own sessions in the sidebar, not everyone's.
+- **Admin overview**: admins access all sessions via the dedicated **Administration panel** in Settings (see §22.16), not through the sidebar.
+- **Ownership guards**: `sessions.preview`, `sessions.patch`, `sessions.delete`, `sessions.reset`, `sessions.compact`, `chat.history`, and `chat.send` all verify ownership before proceeding. Admins retain a bypass on mutation guards (can delete/modify any session). Unauthorized access returns a `FORBIDDEN` error.
 - **Identity propagation**: `GatewayWsClient.authUser` and `authRole` are populated during the WS handshake from `authResult`, enabling server-side identity checks on every RPC call.
 - **Shared helper**: `auth-identity.ts` provides `resolveAuthIdentity()`, `canSeeAllSessions()`, `assertSessionOwnership()`, and `filterStoreByOwner()` — used across all session and user-data handlers.
 
@@ -607,7 +608,7 @@ In hashed credentials mode, chat sessions are isolated per user — each user ca
 | Scenario | Behavior |
 |---|---|
 | Token mode (no `authUser`) | No filtering — fully backward compatible |
-| Admin role | Sees and modifies all sessions |
+| Admin role | Sidebar: own sessions + legacy only. Admin panel: metadata overview of all users' sessions |
 | Legacy sessions (no `ownerId`) | Visible to all authenticated users |
 | New sessions (hashed credentials) | Stamped with `ownerId`, only visible to owner + admins |
 | CLI / Node connections | No `authUser` → no filtering |
@@ -616,6 +617,33 @@ In hashed credentials mode, chat sessions are isolated per user — each user ca
 
 When `gateway-users.json` exists but auth mode is `token`, a console warning is logged at startup:
 > `gateway-users.json exists but auth mode is 'token'. Per-user session isolation is inactive. Set gateway.auth.mode to 'password' for multi-user authentication.`
+
+### 22.16 Admin Session Management Panel
+
+In hashed credentials mode, admins access a dedicated **Administration** panel in the Settings modal to manage all users' sessions.
+
+#### UI
+
+- **Visible only for admin role** (`state.authUser.role === "admin"`).
+- **Users table**: username, role badge (admin/operator/read-only), session count, last activity (relative time).
+- **Expandable rows**: click a user → shows their session list (title, session key, last activity).
+- **Delete button**: per-session deletion (calls `sessions.delete` — admin bypass on ownership guard).
+- **Legacy section**: separate table for sessions without `ownerId` (created before session isolation).
+- **Metadata only**: no content, no previews — privacy-preserving by design.
+
+#### WS Methods
+
+| Method | Scope | Description |
+|---|---|---|
+| `admin.sessions.list` | admin | Per-user aggregation: `AdminUserRow[]` + `unownedSessions[]` |
+| `admin.sessions.detail` | admin | Sessions for a specific user (metadata only) |
+
+#### Types
+
+```typescript
+type AdminUserRow = { username: string; role: GatewayUserRole; sessionCount: number; lastActivity: number | null };
+type AdminSessionRow = { sessionKey: string; sessionId?: string; ownerId?: string; updatedAt: number | null; title?: string };
+```
 
 ### 22.14 Security Hardening Summary
 
@@ -647,6 +675,7 @@ When `gateway-users.json` exists but auth mode is `token`, a console warning is 
 | **Password change**   | Settings > Security password change form                                 | `POST /auth/change-password` with scrypt verify; CSRF-protected; inline success/error       |
 | **HTTPS redirect**    | HTTP→HTTPS 301 redirect when TLS enabled                                 | `gateway.tls.httpRedirectPort` spawns plain HTTP server; all requests → `https://`          |
 | **Session isolation** | Per-user session ownership in hashed credentials mode                     | `ownerId` stamping, `FORBIDDEN` on cross-user access, admin bypass, token-mode no-op        |
+| **Admin panel**       | Metadata-only session overview for admins                                 | `admin.sessions.list/detail` WS methods; no content/preview exposure; delete capability     |
 
 ---
 
