@@ -604,7 +604,7 @@ Systematic verification of every documented feature against the code. Correction
 
 ---
 
-## `e7ba3369c` — 2026-02-26
+## `3614e5b2c` — 2026-02-26
 
 ### feat(ui): add auth improvements - onboarding choice, password recovery, migration banner
 
