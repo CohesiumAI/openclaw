@@ -57,7 +57,7 @@ export type AppViewState = {
   connected: boolean;
   /** Auth gate status — controls whether login screen or main UI is shown. */
   authStatus: AuthStatus;
-  authUser: { username: string; role: string } | null;
+  authUser: { username: string; role: string; encryptionSalt?: string } | null;
   loginUsername: string;
   loginPassword: string;
   loginError: string | null;

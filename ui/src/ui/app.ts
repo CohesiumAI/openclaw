@@ -93,6 +93,11 @@ import {
   submitTotpChallenge,
   verifyTotp,
 } from "./auth.ts";
+import {
+  initEncryptionKey,
+  clearEncryptionKey,
+  reencryptSessions,
+} from "./crypto-manager.ts";
 import { loadAssistantIdentity as loadAssistantIdentityInternal } from "./controllers/assistant-identity.ts";
 import { loadChatHistory as loadChatHistoryInternal } from "./controllers/chat.ts";
 import { patchSession } from "./controllers/sessions.ts";
@@ -129,12 +134,14 @@ export class OpenClawApp extends LitElement {
   @state() onboarding = resolveOnboardingMode();
   @state() connected = false;
   @state() authStatus: AuthStatus = "loading";
-  @state() authUser: { username: string; role: string } | null = null;
+  @state() authUser: { username: string; role: string; encryptionSalt?: string } | null = null;
   @state() loginUsername = "";
   @state() loginPassword = "";
   @state() loginError: string | null = null;
   @state() loginLoading = false;
   @state() totpChallengeSessionId: string | null = null;
+  /** Held temporarily during TOTP flow so we can derive the encryption key after TOTP completes. */
+  private _pendingPassword: string | null = null;
   @state() totpCode = "";
   @state() totpError: string | null = null;
   @state() totpLoading = false;
@@ -528,18 +535,24 @@ export class OpenClawApp extends LitElement {
     }
     this.loginLoading = true;
     this.loginError = null;
+    const passwordForKey = this.loginPassword;
     const result = await authLogin(this.loginUsername, this.loginPassword, this.basePath);
     this.loginLoading = false;
     if (result.status === "authenticated") {
       this.authStatus = "authenticated";
-      this.authUser = { username: result.user.username, role: result.user.role };
+      this.authUser = { username: result.user.username, role: result.user.role, encryptionSalt: result.user.encryptionSalt };
       this.loginPassword = "";
       this.loginError = null;
+      // Derive encryption key if salt is available (queue processing happens on WS connect)
+      if (result.user.encryptionSalt) {
+        void initEncryptionKey(passwordForKey, result.user.encryptionSalt);
+      }
       startSessionRefresh(this);
       connectGatewayInternal(this as unknown as Parameters<typeof connectGatewayInternal>[0]);
     } else if (result.status === "totp-required") {
       this.authStatus = "totp-challenge";
       this.totpChallengeSessionId = result.challengeSessionId;
+      this._pendingPassword = passwordForKey;
       this.loginPassword = "";
       this.totpCode = "";
       this.totpError = null;
@@ -562,7 +575,12 @@ export class OpenClawApp extends LitElement {
     this.totpLoading = false;
     if (result.status === "authenticated") {
       this.authStatus = "authenticated";
-      this.authUser = { username: result.user.username, role: result.user.role };
+      this.authUser = { username: result.user.username, role: result.user.role, encryptionSalt: result.user.encryptionSalt };
+      // Derive encryption key using the password held from the login step (queue processing happens on WS connect)
+      if (this._pendingPassword && result.user.encryptionSalt) {
+        void initEncryptionKey(this._pendingPassword, result.user.encryptionSalt);
+      }
+      this._pendingPassword = null;
       this.totpChallengeSessionId = null;
       this.totpCode = "";
       this.totpError = null;
@@ -579,6 +597,7 @@ export class OpenClawApp extends LitElement {
     this.totpCode = "";
     this.totpError = null;
     this.totpBackupMode = false;
+    this._pendingPassword = null;
   }
 
   async handleSetup() {
@@ -605,6 +624,7 @@ export class OpenClawApp extends LitElement {
     }
     this.setupLoading = true;
     this.setupError = null;
+    const setupPasswordForKey = this.setupPassword;
     const result = await setupFirstUser(
       {
         username: this.setupUsername.trim(),
@@ -615,7 +635,11 @@ export class OpenClawApp extends LitElement {
     );
     this.setupLoading = false;
     if (result.status === "authenticated") {
-      this.authUser = { username: result.user.username, role: result.user.role };
+      this.authUser = { username: result.user.username, role: result.user.role, encryptionSalt: result.user.encryptionSalt };
+      // Derive encryption key for the newly created user
+      if (result.user.encryptionSalt) {
+        void initEncryptionKey(setupPasswordForKey, result.user.encryptionSalt);
+      }
       this.setupPassword = "";
       this.setupPasswordConfirm = "";
       this.setupRecoveryCode = "";
@@ -723,6 +747,10 @@ export class OpenClawApp extends LitElement {
       if (!result.ok) {
         this.recoveryError = result.error || "Password reset failed";
         return;
+      }
+
+      if (result.encryptedSessionsLost) {
+        console.warn("[crypto] Password reset via recovery code — previously encrypted sessions are now unrecoverable.");
       }
 
       // Success - attempt auto-login with new credentials
@@ -840,13 +868,35 @@ export class OpenClawApp extends LitElement {
     this.pwChangeLoading = true;
     this.pwChangeError = null;
     this.pwChangeSuccess = false;
-    const result = await changePassword(
-      this.pwChangeCurrentPassword,
-      this.pwChangeNewPassword,
-      this.basePath,
-    );
-    this.pwChangeLoading = false;
+    const oldPassword = this.pwChangeCurrentPassword;
+    const newPassword = this.pwChangeNewPassword;
+    const oldSalt = this.authUser?.encryptionSalt;
+    const result = await changePassword(oldPassword, newPassword, this.basePath);
     if (result.ok) {
+      // Re-encrypt existing encrypted sessions with the new key
+      if (oldSalt && result.newEncryptionSalt && this.client) {
+        try {
+          await reencryptSessions(
+            this.client,
+            oldPassword,
+            oldSalt,
+            newPassword,
+            result.newEncryptionSalt,
+          );
+        } catch (err) {
+          console.warn("[crypto] Re-encryption failed:", err);
+        }
+        // Update authUser with new salt
+        if (this.authUser) {
+          this.authUser = { ...this.authUser, encryptionSalt: result.newEncryptionSalt };
+        }
+      } else if (result.newEncryptionSalt) {
+        // No old salt — just derive the new key
+        void initEncryptionKey(newPassword, result.newEncryptionSalt);
+        if (this.authUser) {
+          this.authUser = { ...this.authUser, encryptionSalt: result.newEncryptionSalt };
+        }
+      }
       this.pwChangeSuccess = true;
       this.pwChangeCurrentPassword = "";
       this.pwChangeNewPassword = "";
@@ -854,10 +904,12 @@ export class OpenClawApp extends LitElement {
     } else {
       this.pwChangeError = result.error ?? "Password change failed";
     }
+    this.pwChangeLoading = false;
   }
 
   async handleLogout() {
     stopSessionRefresh();
+    clearEncryptionKey();
     await authLogout(this.basePath);
     this.client?.stop();
     this.client = null;
@@ -871,6 +923,7 @@ export class OpenClawApp extends LitElement {
     this.totpChallengeSessionId = null;
     this.totpCode = "";
     this.totpError = null;
+    this._pendingPassword = null;
   }
 
   setPassword(next: string) {

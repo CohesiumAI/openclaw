@@ -12,6 +12,7 @@ import {
   createGatewayUser,
   getGatewayUser,
   hasGatewayUsers,
+  updateGatewayUserEncryptionSalt,
   updateGatewayUserPassword,
   updateGatewayUserTotp,
 } from "../infra/auth-credentials.js";
@@ -269,6 +270,7 @@ async function handleLogin(
       username: session.username,
       role: session.role,
       scopes: session.scopes,
+      encryptionSalt: user.encryptionSalt,
     },
     csrfToken: session.csrfToken,
   });
@@ -306,12 +308,15 @@ function handleMe(req: IncomingMessage, res: ServerResponse): void {
   }
   const secure = isSecureRequest(req);
   setSessionCookie(res, session.id, { secure });
+  // Look up encryption salt for E2E session encryption
+  const gwUser = getGatewayUser(session.username);
   sendJson(res, 200, {
     ok: true,
     user: {
       username: session.username,
       role: session.role,
       scopes: session.scopes,
+      encryptionSalt: gwUser?.encryptionSalt,
     },
     csrfToken: session.csrfToken,
   });
@@ -486,11 +491,17 @@ async function handleResetPassword(
   // Valid recovery code — update password
   const newHash = await hashPassword(newPassword);
   updateGatewayUserPassword(username, newHash);
+
+  // Regenerate encryption salt — old E2E encrypted sessions become unrecoverable
+  const newEncryptionSalt = crypto.randomBytes(32).toString("hex");
+  updateGatewayUserEncryptionSalt(username, newEncryptionSalt);
+  const hadEncryptedSessions = !!user.encryptionSalt;
+
   recoveryLimiter.reset(ipKey);
   recoveryLimiter.reset(userKey);
   audit("auth.recovery.success", username, ip);
 
-  sendJson(res, 200, { ok: true });
+  sendJson(res, 200, { ok: true, encryptedSessionsLost: hadEncryptedSessions });
 }
 
 // --- Capabilities (feature discovery for frontend) ---
@@ -749,10 +760,14 @@ async function handleChangePassword(
   const newHash = await hashPassword(newPassword);
   updateGatewayUserPassword(session.username, newHash);
 
+  // Generate a new encryption salt for re-encryption of E2E encrypted sessions
+  const newEncryptionSalt = crypto.randomBytes(32).toString("hex");
+  updateGatewayUserEncryptionSalt(session.username, newEncryptionSalt);
+
   const ip = clientIpFromReq(req, opts.trustedProxies);
   audit("auth.password_changed", session.username, ip);
 
-  sendJson(res, 200, { ok: true });
+  sendJson(res, 200, { ok: true, newEncryptionSalt });
 }
 
 // --- TOTP endpoints (P3a — only active in hashed-credentials mode) ---
@@ -915,12 +930,14 @@ async function handleTotpChallenge(
   const secure = isSecureRequest(req);
   setSessionCookie(res, fullSession.id, { secure });
 
+  const gwUserTotp = getGatewayUser(fullSession.username);
   sendJson(res, 200, {
     ok: true,
     user: {
       username: fullSession.username,
       role: fullSession.role,
       scopes: fullSession.scopes,
+      encryptionSalt: gwUserTotp?.encryptionSalt,
     },
     csrfToken: fullSession.csrfToken,
   });
@@ -1001,12 +1018,14 @@ async function handleTotpBackup(
   const secure = isSecureRequest(req);
   setSessionCookie(res, fullSession.id, { secure });
 
+  const gwUserBackup = getGatewayUser(fullSession.username);
   sendJson(res, 200, {
     ok: true,
     user: {
       username: fullSession.username,
       role: fullSession.role,
       scopes: fullSession.scopes,
+      encryptionSalt: gwUserBackup?.encryptionSalt,
     },
     csrfToken: fullSession.csrfToken,
     remainingBackupCodes: remaining.length,

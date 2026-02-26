@@ -645,6 +645,52 @@ type AdminUserRow = { username: string; role: GatewayUserRole; sessionCount: num
 type AdminSessionRow = { sessionKey: string; sessionId?: string; ownerId?: string; updatedAt: number | null; title?: string };
 ```
 
+### 22.17 E2E Encryption of Archived Session Transcripts
+
+Client-side encryption of archived session transcripts using the WebCrypto API. The server never sees the plaintext of encrypted sessions.
+
+#### Key Derivation
+
+- **PBKDF2** with 310,000 iterations and SHA-256 hash.
+- Per-user `encryptionSalt` (32 random bytes, hex-encoded) stored in `gateway-users.json`.
+- Derives a **non-extractable** AES-256-GCM `CryptoKey` — can only be used for encrypt/decrypt operations.
+- Key is derived once at login and held in memory. Lost on logout or tab close; re-derived on next login.
+
+#### Encryption Flow
+
+1. Server archives a session transcript (`.jsonl` → `.jsonl.reset.<ts>`) and marks it `pendingEncryption` in the encryption index.
+2. Client connects (WS `hello-ok`), checks for pending entries via `sessions.encrypt.pending`.
+3. For each pending file: fetches plaintext via `sessions.encrypt.fetch`, encrypts client-side, pushes blob via `sessions.encrypt.push`.
+4. Server stores `.enc` file, removes plaintext original, updates encryption index to `encrypted`.
+
+#### Blob Format
+
+```
+[IV 12 bytes][ciphertext + authTag (16 bytes appended by AES-GCM)]
+```
+
+#### Password Change
+
+- Old password derives old key → decrypt all encrypted blobs.
+- New password + new salt derives new key → re-encrypt all blobs.
+- Server generates new `encryptionSalt` on password change.
+- Re-encryption happens client-side via `sessions.encrypt.reencrypt`.
+
+#### Password Recovery
+
+- Recovery code **cannot** recover encrypted sessions.
+- Server regenerates `encryptionSalt` — old `.enc` files become unrecoverable.
+- Response includes `encryptedSessionsLost: true` flag.
+
+#### WS Methods
+
+| Method | Scope | Description |
+|---|---|---|
+| `sessions.encrypt.pending` | write | List pending encryption entries for current user |
+| `sessions.encrypt.fetch` | write | Fetch plaintext content (ownership guard) |
+| `sessions.encrypt.push` | write | Store encrypted blob, remove plaintext |
+| `sessions.encrypt.reencrypt` | write | Return all encrypted blobs for re-encryption |
+
 ### 22.14 Security Hardening Summary
 
 | Layer                 | Protection                                                               | Details                                                                                     |
@@ -676,6 +722,7 @@ type AdminSessionRow = { sessionKey: string; sessionId?: string; ownerId?: strin
 | **HTTPS redirect**    | HTTP→HTTPS 301 redirect when TLS enabled                                 | `gateway.tls.httpRedirectPort` spawns plain HTTP server; all requests → `https://`          |
 | **Session isolation** | Per-user session ownership in hashed credentials mode                     | `ownerId` stamping, `FORBIDDEN` on cross-user access, admin bypass, token-mode no-op        |
 | **Admin panel**       | Metadata-only session overview for admins                                 | `admin.sessions.list/detail` WS methods; no content/preview exposure; delete capability     |
+| **E2E encryption**    | Client-side AES-256-GCM encryption of archived transcripts               | PBKDF2 key derivation (310K, SHA-256); non-extractable CryptoKey; re-encryption on pw change |
 
 ---
 

@@ -38,7 +38,7 @@ type LifecycleHost = {
   topbarObserver: ResizeObserver | null;
   // Auth gate
   authStatus: AuthStatus;
-  authUser: { username: string; role: string } | null;
+  authUser: { username: string; role: string; encryptionSalt?: string } | null;
   handleLogout: () => Promise<void>;
   // V2 modal state
   searchModalOpen: boolean;
@@ -118,7 +118,7 @@ async function checkAuthAndConnect(host: LifecycleHost) {
   const result = await checkAuth(host.basePath);
   if (result.status === "authenticated") {
     host.authStatus = "authenticated";
-    host.authUser = { username: result.user.username, role: result.user.role };
+    host.authUser = { username: result.user.username, role: result.user.role, encryptionSalt: result.user.encryptionSalt };
     startSessionRefresh(host);
     connectGateway(host as unknown as Parameters<typeof connectGateway>[0]);
   } else if (result.status === "unauthenticated") {

@@ -31,6 +31,7 @@ import { loadNodes } from "./controllers/nodes.ts";
 import { setProjectFilesGatewayClient } from "./controllers/project-files-client.ts";
 import { loadSessions } from "./controllers/sessions.ts";
 import { loadSkills } from "./controllers/skills.ts";
+import { hasEncryptionKey, processPendingEncryption } from "./crypto-manager.ts";
 import {
   resolveGatewayErrorDetailCode,
   GatewayBrowserClient,
@@ -174,6 +175,10 @@ export function connectGateway(host: GatewayHost) {
       void refreshActiveTab(host as unknown as Parameters<typeof refreshActiveTab>[0]);
       // Register gateway client for server-side file storage
       setProjectFilesGatewayClient(host.client);
+      // Process pending E2E encryption queue if key is available
+      if (hasEncryptionKey() && host.client) {
+        void processPendingEncryption(host.client);
+      }
       // Sync user data from server (merge server → local on connect)
       if (host.client) {
         const syncClient = host.client;

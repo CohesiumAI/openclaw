@@ -773,3 +773,64 @@ After per-user session isolation, admins still saw **all** sessions in the sideb
 - `src/gateway/server-methods.ts` — handler registration
 - `src/gateway/method-scopes.ts` — scope classifications
 - `ui/src/ui/views/settings-unified.ts` — admin panel UI
+
+---
+
+## Commit — 2026-02-26
+
+### feat(security): E2E encryption of archived session transcripts
+
+#### Architecture
+
+Client-side encryption of archived session transcripts using WebCrypto API:
+- **PBKDF2** (310K iterations, SHA-256) derives an AES-256-GCM key from the user's password + per-user salt
+- **CryptoKey** is non-extractable, held in memory only — lost on logout/tab close
+- **Blob format**: `[IV 12 bytes][ciphertext + authTag]` (AES-GCM auto-appends 16-byte auth tag)
+- **Hybrid trigger**: server marks archived files as `pendingEncryption`, client processes the queue on login
+
+#### Backend Changes
+
+- **`auth-credentials.ts`**: added `encryptionSalt` (hex, 32 bytes) to `GatewayUser`, auto-generated on user creation. Added `updateGatewayUserEncryptionSalt()` for password change.
+- **`auth-http.ts`**: `/auth/login`, `/auth/me`, TOTP challenge/backup responses now include `encryptionSalt`. `/auth/change-password` regenerates salt and returns `newEncryptionSalt`. `/auth/reset-password` regenerates salt with `encryptedSessionsLost` flag.
+- **`encryption-index.ts`** (new): per-agent encryption index tracking `{filename, ownerId, state}` where state is `plaintext | encrypted | pendingEncryption`.
+- **`session-utils.fs.ts`**: `archiveSessionTranscripts()` marks archived files as `pendingEncryption` when `ownerId` is set.
+- **`session-encryption.ts`** (new): 4 WS handlers:
+  - `sessions.encrypt.pending` — list pending files for current user
+  - `sessions.encrypt.fetch` — fetch plaintext content (ownership guard)
+  - `sessions.encrypt.push` — store encrypted blob, remove plaintext
+  - `sessions.encrypt.reencrypt` — return all encrypted blobs for re-encryption
+- **`method-scopes.ts`**: classified `sessions.encrypt.*` methods in `WRITE_SCOPE`.
+
+#### Frontend Changes
+
+- **`session-crypto.ts`** (new): WebCrypto functions — `deriveEncryptionKey()`, `encryptTranscript()`, `decryptTranscript()`, `arrayBufferToBase64()`, `base64ToArrayBuffer()`.
+- **`crypto-manager.ts`** (new): manages CryptoKey lifecycle — `initEncryptionKey()`, `clearEncryptionKey()`, `processPendingEncryption()`, `reencryptSessions()`.
+- **`auth.ts`**: `AuthUser` extended with `encryptionSalt`. `changePassword()` returns `newEncryptionSalt`. `resetPassword()` returns `encryptedSessionsLost`.
+- **`app.ts`**: derives encryption key at login (handles TOTP flow with `_pendingPassword`). Clears key on logout. Password change triggers re-encryption of all encrypted sessions.
+- **`app-gateway.ts`**: processes pending encryption queue on WS connect (`onHello`).
+- **`app-lifecycle.ts`**, **`app-view-state.ts`**: `authUser` type extended with `encryptionSalt`.
+
+#### Password Change & Recovery
+
+- **Change password**: old key decrypts existing blobs → new key re-encrypts → pushed back. New `encryptionSalt` generated server-side.
+- **Recovery code**: does NOT recover encrypted sessions. New salt is generated, old `.enc` files become unrecoverable. `encryptedSessionsLost: true` flag returned to frontend.
+
+#### Tests
+
+- `encryption-index.test.ts` (new): 10 tests — CRUD, filtering by owner/state, corrupt JSON handling.
+
+#### Files Changed (13)
+
+- `src/infra/auth-credentials.ts` — `encryptionSalt` field + update function
+- `src/gateway/auth-http.ts` — salt in auth responses, password change/reset updates
+- `src/gateway/encryption-index.ts` — **new** encryption state tracking
+- `src/gateway/session-utils.fs.ts` — mark archived files for encryption
+- `src/gateway/server-methods/session-encryption.ts` — **new** WS handlers
+- `src/gateway/server-methods.ts` — handler registration
+- `src/gateway/method-scopes.ts` — scope classifications
+- `ui/src/crypto/session-crypto.ts` — **new** WebCrypto functions
+- `ui/src/ui/crypto-manager.ts` — **new** key lifecycle manager
+- `ui/src/ui/auth.ts` — AuthUser type, changePassword/resetPassword updates
+- `ui/src/ui/app.ts` — login/TOTP/logout/password-change integration
+- `ui/src/ui/app-gateway.ts` — pending queue processing on connect
+- `ui/src/ui/app-lifecycle.ts` — authUser type update

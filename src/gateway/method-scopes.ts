@@ -106,6 +106,10 @@ const METHOD_SCOPE_GROUPS: Record<OperatorScope, readonly string[]> = {
     "user.projects.files.delete",
     "chat.files.put",
     "chat.files.delete",
+    "sessions.encrypt.pending",
+    "sessions.encrypt.fetch",
+    "sessions.encrypt.push",
+    "sessions.encrypt.reencrypt",
   ],
   [ADMIN_SCOPE]: [
     "channels.logout",

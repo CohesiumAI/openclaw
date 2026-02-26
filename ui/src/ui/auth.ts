@@ -7,6 +7,7 @@ export type AuthUser = {
   username: string;
   role: string;
   scopes: string[];
+  encryptionSalt?: string;
 };
 
 export type AuthState =
@@ -278,7 +279,7 @@ export async function changePassword(
   currentPassword: string,
   newPassword: string,
   basePath = "",
-): Promise<{ ok: boolean; error?: string }> {
+): Promise<{ ok: boolean; newEncryptionSalt?: string; error?: string }> {
   try {
     const token = getCsrfToken();
     const headers: Record<string, string> = { "Content-Type": "application/json" };
@@ -292,7 +293,8 @@ export async function changePassword(
       body: JSON.stringify({ currentPassword, newPassword }),
     });
     if (res.ok) {
-      return { ok: true };
+      const data = (await res.json()) as { ok: boolean; newEncryptionSalt?: string };
+      return { ok: true, newEncryptionSalt: data.newEncryptionSalt };
     }
     const data = (await res.json()) as { error?: { message: string } };
     return { ok: false, error: data.error?.message ?? "Password change failed" };
@@ -307,7 +309,7 @@ export async function resetPassword(
   recoveryCode: string,
   newPassword: string,
   basePath = "",
-): Promise<{ ok: boolean; error?: string }> {
+): Promise<{ ok: boolean; encryptedSessionsLost?: boolean; error?: string }> {
   try {
     const res = await fetch(`${basePath}/auth/reset-password`, {
       method: "POST",
@@ -316,7 +318,8 @@ export async function resetPassword(
       body: JSON.stringify({ username, recoveryCode, newPassword }),
     });
     if (res.ok) {
-      return { ok: true };
+      const data = (await res.json()) as { ok: boolean; encryptedSessionsLost?: boolean };
+      return { ok: true, encryptedSessionsLost: data.encryptedSessionsLost };
     }
     const data = (await res.json()) as { error?: { message: string } };
     return { ok: false, error: data.error?.message ?? "Password reset failed" };

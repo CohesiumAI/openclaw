@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { markPendingEncryption } from "./encryption-index.js";
 import {
   formatSessionArchiveTimestamp,
   parseSessionArchiveTimestamp,
@@ -184,6 +185,12 @@ export function archiveFileOnDisk(filePath: string, reason: ArchiveFileReason): 
  * Archives all transcript files for a given session.
  * Best-effort: silently skips files that don't exist or fail to rename.
  */
+/** Mark an archived file for pending E2E encryption. */
+function markArchivedForEncryption(archivedPath: string, ownerId: string): void {
+  const sessionsDir = path.dirname(archivedPath);
+  markPendingEncryption(sessionsDir, path.basename(archivedPath), ownerId);
+}
+
 export function archiveSessionTranscripts(opts: {
   sessionId: string;
   storePath: string | undefined;
@@ -195,6 +202,8 @@ export function archiveSessionTranscripts(opts: {
    * This prevents maintenance operations from mutating paths outside the agent sessions dir.
    */
   restrictToStoreDir?: boolean;
+  /** Owner username for E2E encryption tracking. When set, archived files are marked as pendingEncryption. */
+  ownerId?: string;
 }): string[] {
   const archived: string[] = [];
   const storeDir =
@@ -218,7 +227,16 @@ export function archiveSessionTranscripts(opts: {
       continue;
     }
     try {
-      archived.push(archiveFileOnDisk(candidatePath, opts.reason));
+      const archivedPath = archiveFileOnDisk(candidatePath, opts.reason);
+      archived.push(archivedPath);
+      // Mark for E2E encryption if owner is known (hashed credentials mode)
+      if (opts.ownerId) {
+        try {
+          markArchivedForEncryption(archivedPath, opts.ownerId);
+        } catch {
+          // Best-effort — encryption index failure should not block archival
+        }
+      }
     } catch {
       // Best-effort.
     }

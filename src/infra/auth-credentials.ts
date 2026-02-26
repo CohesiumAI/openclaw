@@ -3,6 +3,7 @@
  * Persists hashed passwords in ~/.openclaw/credentials/gateway-users.json (mode 0o600).
  */
 
+import crypto from "node:crypto";
 import path from "node:path";
 import { resolveStateDir } from "../config/paths.js";
 import { loadJsonFile, saveJsonFile } from "./json-file.js";
@@ -23,6 +24,8 @@ export type GatewayUser = {
   backupCodeHashes?: string[];
   /** Last successfully verified TOTP code (anti-replay). */
   lastUsedTotpCode?: string;
+  /** Hex-encoded 32-byte salt for client-side E2E session encryption (PBKDF2 key derivation). */
+  encryptionSalt?: string;
   createdAt: number;
   updatedAt: number;
 };
@@ -94,6 +97,7 @@ export function createGatewayUser(
     username: params.username.trim(),
     passwordHash: params.passwordHash,
     role: params.role,
+    encryptionSalt: crypto.randomBytes(32).toString("hex"),
     createdAt: now,
     updatedAt: now,
   };
@@ -194,6 +198,25 @@ export function updateGatewayUsername(
     return false;
   }
   user.username = newUsername.trim();
+  user.updatedAt = Date.now();
+  saveUsersFile(filePath, data);
+  return true;
+}
+
+/** Update encryption salt for an existing user (used during password change re-encryption). */
+export function updateGatewayUserEncryptionSalt(
+  username: string,
+  encryptionSalt: string,
+  stateDir?: string,
+): boolean {
+  const filePath = resolveGatewayUsersPath(stateDir);
+  const data = loadUsersFile(filePath);
+  const normalized = username.trim().toLowerCase();
+  const user = data.users.find((u) => u.username.toLowerCase() === normalized);
+  if (!user) {
+    return false;
+  }
+  user.encryptionSalt = encryptionSalt;
   user.updatedAt = Date.now();
   saveUsersFile(filePath, data);
   return true;
