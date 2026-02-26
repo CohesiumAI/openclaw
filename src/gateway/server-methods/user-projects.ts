@@ -3,8 +3,8 @@
  * Username is resolved from the authenticated session — never from client params.
  */
 
-import type { GatewayWsClient } from "../server/ws-types.js";
 import type { GatewayRequestHandlers, GatewayRequestHandlerOptions } from "./types.js";
+import { resolveAuthIdentity } from "./auth-identity.js";
 import { ErrorCodes, errorShape } from "../protocol/index.js";
 import {
   listProjects,
@@ -16,17 +16,11 @@ import {
   removeProjectFiles,
 } from "../user-projects.js";
 
-/** Resolve the authenticated username from the WS client (set during handshake). */
-function resolveAuthUser(client: GatewayRequestHandlerOptions["client"]): string | null {
-  const wsClient = client as unknown as GatewayWsClient | null;
-  return wsClient?.authUser?.trim() || null;
-}
-
 function requireAuth(
   client: GatewayRequestHandlerOptions["client"],
   respond: GatewayRequestHandlerOptions["respond"],
 ): string | null {
-  const username = resolveAuthUser(client);
+  const username = resolveAuthIdentity(client)?.username;
   if (!username) {
     respond(
       false,

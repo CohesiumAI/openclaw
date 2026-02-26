@@ -668,3 +668,64 @@ Enhanced authentication UX with three new features to improve the onboarding and
 - **Zero breaking changes**: all existing users (token, password legacy, hashed credentials) continue to work without modification.
 - **Opt-in UX**: new users see choice screen (can still choose Quick Setup), existing users see optional migration banner (dismissible).
 - **Fail-open**: all new UI states gracefully degrade if backend doesn't support new endpoints.
+
+---
+
+## `(uncommitted)` — 2026-02-26
+
+### security(gateway): per-user session isolation + startup warning
+
+Chat sessions are now isolated per user in hashed credentials mode. Previously, all authenticated users could see, modify, and delete every session regardless of who created it.
+
+#### Per-User Session Isolation
+
+- **`ownerId` field on `SessionEntry`**: new optional `ownerId?: string` stamps the username of the session creator. Legacy sessions without `ownerId` remain visible to all users (gradual migration).
+- **`auth-identity.ts`** (new shared helper): `resolveAuthIdentity()`, `canSeeAllSessions()`, `assertSessionOwnership()`, `filterStoreByOwner()` — centralized auth identity resolution replacing 3 duplicated `resolveAuthUser()` functions.
+- **`sessions.list`**: filtered per-user — operators only see their own sessions + legacy (no `ownerId`). Admins see all.
+- **`sessions.preview`**: ownership check per session key before loading previews.
+- **`sessions.patch`, `sessions.delete`, `sessions.reset`, `sessions.compact`**: ownership guard — returns `FORBIDDEN` error if the session belongs to another user.
+- **`chat.history`, `chat.send`**: ownership guard before reading/writing chat messages.
+- **`ownerId` stamping**: new sessions are stamped with the authenticated user's username via `MsgContext.GatewayAuthUser`. On `sessions.reset`, the existing `ownerId` is preserved (or stamped if missing).
+- **`GatewaySessionRow`**: includes `ownerId` for UI-side display.
+- **`FORBIDDEN` error code**: new error code for ownership violations.
+
+#### WS Identity Propagation
+
+- **`GatewayWsClient.authUser`** was defined in the type but **never populated** during the WS handshake. Now populated from `authResult.user`.
+- **`GatewayWsClient.authRole`** (new field): populated from `authResult.role` to enable admin bypass checks.
+
+#### Startup Warning
+
+- When `gateway-users.json` exists but auth mode is `token`, a console warning is logged at startup explaining that per-user session isolation is inactive.
+
+#### Refactoring
+
+- `user-preferences.ts`, `user-projects.ts`, `user-sessions.ts`: refactored to use shared `resolveAuthIdentity()` from `auth-identity.ts` instead of duplicated local helpers.
+
+#### Backward Compatibility
+
+| Scenario | Behavior |
+|---|---|
+| Token mode (no `authUser`) | No filtering — fully backward compatible |
+| Admin role | Sees and modifies all sessions |
+| Legacy sessions (no `ownerId`) | Visible to all users |
+| New sessions (hashed credentials) | Stamped with `ownerId`, only visible to owner + admins |
+| CLI / Node connections | No `authUser` → no filtering |
+
+#### Files Changed (15)
+
+- `src/gateway/server/ws-types.ts` — added `authRole` field
+- `src/gateway/server/ws-connection/message-handler.ts` — populate `authUser`/`authRole` from `authResult`
+- `src/gateway/protocol/schema/error-codes.ts` — added `FORBIDDEN`
+- `src/config/sessions/types.ts` — added `ownerId` to `SessionEntry`
+- `src/gateway/server-methods/auth-identity.ts` — **new** shared auth helper
+- `src/gateway/server-methods/sessions.ts` — per-user filtering + ownership guards
+- `src/gateway/server-methods/chat.ts` — ownership guards + `GatewayAuthUser` stamping
+- `src/auto-reply/templating.ts` — added `GatewayAuthUser` to `MsgContext`
+- `src/auto-reply/reply/session.ts` — `ownerId` stamping at session creation
+- `src/gateway/session-utils.ts` — `ownerId` in row mapping
+- `src/gateway/session-utils.types.ts` — `ownerId` in `GatewaySessionRow`
+- `src/gateway/auth.ts` — startup warning for token mode + `gateway-users.json`
+- `src/gateway/server-methods/user-preferences.ts` — refactored to shared helper
+- `src/gateway/server-methods/user-projects.ts` — refactored to shared helper
+- `src/gateway/server-methods/user-sessions.ts` — refactored to shared helper

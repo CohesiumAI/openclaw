@@ -327,6 +327,14 @@ export function assertGatewayAuthConfigured(auth: ResolvedGatewayAuth): void {
       );
     }
   }
+  // Warn when gateway-users.json exists but auth mode is token — per-user isolation is inactive.
+  if (auth.mode === "token" && hasGatewayUsers()) {
+    console.warn(
+      "[gateway] WARNING: gateway-users.json exists but auth mode is 'token'. " +
+        "Per-user session isolation is inactive. " +
+        "Set gateway.auth.mode to 'password' for multi-user authentication.",
+    );
+  }
 }
 
 /**

@@ -46,6 +46,7 @@ import { formatForLog } from "../ws-log.js";
 import { injectTimestamp, timestampOptsFromConfig } from "./agent-timestamp.js";
 import { normalizeRpcAttachmentsToChatAttachments } from "./attachment-normalize.js";
 import { appendInjectedAssistantMessageToTranscript } from "./chat-transcript-inject.js";
+import { resolveAuthIdentity, assertSessionOwnership } from "./auth-identity.js";
 import type { GatewayRequestContext, GatewayRequestHandlers } from "./types.js";
 
 type TranscriptAppendResult = {
@@ -530,7 +531,7 @@ function broadcastChatError(params: {
 }
 
 export const chatHandlers: GatewayRequestHandlers = {
-  "chat.history": async ({ params, respond, context }) => {
+  "chat.history": async ({ params, respond, context, client }) => {
     if (!validateChatHistoryParams(params)) {
       respond(
         false,
@@ -547,6 +548,9 @@ export const chatHandlers: GatewayRequestHandlers = {
       limit?: number;
     };
     const { cfg, storePath, entry } = loadSessionEntry(sessionKey);
+    // Ownership check
+    if (!assertSessionOwnership({ client, entry, respond })) return;
+
     const sessionId = entry?.sessionId;
     const rawMessages =
       sessionId && storePath ? readSessionMessages(sessionId, storePath, entry?.sessionFile) : [];
@@ -733,6 +737,10 @@ export const chatHandlers: GatewayRequestHandlers = {
     }
     const rawSessionKey = p.sessionKey;
     const { cfg, entry, canonicalKey: sessionKey } = loadSessionEntry(rawSessionKey);
+    // Ownership check
+    if (!assertSessionOwnership({ client, entry, respond })) return;
+
+    const chatSendIdentity = resolveAuthIdentity(client);
     const timeoutMs = resolveAgentTimeoutMs({
       cfg,
       overrideMs: p.timeoutMs,
@@ -828,6 +836,7 @@ export const chatHandlers: GatewayRequestHandlers = {
         SenderName: clientInfo?.displayName,
         SenderUsername: clientInfo?.displayName,
         GatewayClientScopes: client?.connect?.scopes,
+        GatewayAuthUser: chatSendIdentity?.username,
       };
 
       const agentId = resolveSessionAgentId({

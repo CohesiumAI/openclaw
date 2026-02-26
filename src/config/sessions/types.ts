@@ -74,6 +74,8 @@ export type SessionEntry = {
   /** Timestamp (ms) when lastHeartbeatText was delivered. */
   lastHeartbeatSentAt?: number;
   sessionId: string;
+  /** Username of the session owner (hashed credentials mode). undefined = legacy/shared. */
+  ownerId?: string;
   updatedAt: number;
   sessionFile?: string;
   /** Parent session key that spawned this session (used for sandbox session-tool scoping). */

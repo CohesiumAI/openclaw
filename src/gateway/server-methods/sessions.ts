@@ -52,6 +52,11 @@ import {
 import { applySessionsPatchToStore } from "../sessions-patch.js";
 import { resolveSessionKeyFromResolveParams } from "../sessions-resolve.js";
 import type { GatewayClient, GatewayRequestHandlers, RespondFn } from "./types.js";
+import {
+  resolveAuthIdentity,
+  assertSessionOwnership,
+  filterStoreByOwner,
+} from "./auth-identity.js";
 import { assertValidParams } from "./validation.js";
 
 function requireSessionKey(key: unknown, respond: RespondFn): string | null {
@@ -281,22 +286,30 @@ async function closeAcpRuntimeForSession(params: {
 }
 
 export const sessionsHandlers: GatewayRequestHandlers = {
-  "sessions.list": ({ params, respond }) => {
+  "sessions.list": ({ params, respond, client }) => {
     if (!assertValidParams(params, validateSessionsListParams, "sessions.list", respond)) {
       return;
     }
     const p = params;
     const cfg = loadConfig();
     const { storePath, store } = loadCombinedSessionStoreForGateway(cfg);
+
+    // Per-user filtering: token mode and admin see all, others see only own + legacy sessions
+    const identity = resolveAuthIdentity(client);
+    const effectiveStore =
+      !identity || identity.role === "admin"
+        ? store
+        : filterStoreByOwner(store, identity.username);
+
     const result = listSessionsFromStore({
       cfg,
       storePath,
-      store,
+      store: effectiveStore,
       opts: p,
     });
     respond(true, result, undefined);
   },
-  "sessions.preview": ({ params, respond }) => {
+  "sessions.preview": ({ params, respond, client }) => {
     if (!assertValidParams(params, validateSessionsPreviewParams, "sessions.preview", respond)) {
       return;
     }
@@ -335,6 +348,17 @@ export const sessionsHandlers: GatewayRequestHandlers = {
         });
         const entry = target.storeKeys.map((candidate) => store[candidate]).find(Boolean);
         if (!entry?.sessionId) {
+          previews.push({ key, status: "missing", items: [] });
+          continue;
+        }
+        // Per-user ownership check: hide sessions belonging to other users
+        const previewIdentity = resolveAuthIdentity(client);
+        if (
+          previewIdentity &&
+          previewIdentity.role !== "admin" &&
+          entry.ownerId &&
+          entry.ownerId !== previewIdentity.username
+        ) {
           previews.push({ key, status: "missing", items: [] });
           continue;
         }
@@ -383,6 +407,10 @@ export const sessionsHandlers: GatewayRequestHandlers = {
     }
 
     const { cfg, target, storePath } = resolveGatewaySessionTargetFromKey(key);
+    // Ownership check
+    const { entry: patchEntry } = loadSessionEntry(key);
+    if (!assertSessionOwnership({ client, entry: patchEntry, respond })) return;
+
     const applied = await updateSessionStore(storePath, async (store) => {
       const { primaryKey } = migrateAndPruneSessionStoreKey({ cfg, key, store });
       return await applySessionsPatchToStore({
@@ -412,7 +440,7 @@ export const sessionsHandlers: GatewayRequestHandlers = {
     };
     respond(true, result, undefined);
   },
-  "sessions.reset": async ({ params, respond }) => {
+  "sessions.reset": async ({ params, respond, client }) => {
     if (!assertValidParams(params, validateSessionsResetParams, "sessions.reset", respond)) {
       return;
     }
@@ -424,7 +452,11 @@ export const sessionsHandlers: GatewayRequestHandlers = {
 
     const { cfg, target, storePath } = resolveGatewaySessionTargetFromKey(key);
     const { entry, legacyKey, canonicalKey } = loadSessionEntry(key);
+    // Ownership check
+    if (!assertSessionOwnership({ client, entry, respond })) return;
+
     const hadExistingEntry = Boolean(entry);
+    const resetIdentity = resolveAuthIdentity(client);
     const commandReason = p.reason === "new" ? "new" : "reset";
     const hookEvent = createInternalHookEvent(
       "command",
@@ -464,6 +496,7 @@ export const sessionsHandlers: GatewayRequestHandlers = {
       const now = Date.now();
       const nextEntry: SessionEntry = {
         sessionId: randomUUID(),
+        ownerId: entry?.ownerId ?? resetIdentity?.username,
         updatedAt: now,
         systemSent: false,
         abortedLastRun: false,
@@ -530,6 +563,9 @@ export const sessionsHandlers: GatewayRequestHandlers = {
     const deleteTranscript = typeof p.deleteTranscript === "boolean" ? p.deleteTranscript : true;
 
     const { entry, legacyKey, canonicalKey } = loadSessionEntry(key);
+    // Ownership check
+    if (!assertSessionOwnership({ client, entry, respond })) return;
+
     const sessionId = entry?.sessionId;
     const cleanupError = await ensureSessionRuntimeCleanup({ cfg, key, target, sessionId });
     if (cleanupError) {
@@ -585,7 +621,7 @@ export const sessionsHandlers: GatewayRequestHandlers = {
 
     respond(true, { ok: true, key: target.canonicalKey, deleted, archived }, undefined);
   },
-  "sessions.compact": async ({ params, respond }) => {
+  "sessions.compact": async ({ params, respond, client }) => {
     if (!assertValidParams(params, validateSessionsCompactParams, "sessions.compact", respond)) {
       return;
     }
@@ -601,6 +637,10 @@ export const sessionsHandlers: GatewayRequestHandlers = {
         : 400;
 
     const { cfg, target, storePath } = resolveGatewaySessionTargetFromKey(key);
+    // Ownership check
+    const { entry: compactCheckEntry } = loadSessionEntry(key);
+    if (!assertSessionOwnership({ client, entry: compactCheckEntry, respond })) return;
+
     // Lock + read in a short critical section; transcript work happens outside.
     const compactTarget = await updateSessionStore(storePath, (store) => {
       const { entry, primaryKey } = migrateAndPruneSessionStoreKey({ cfg, key, store });

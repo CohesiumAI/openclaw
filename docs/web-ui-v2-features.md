@@ -590,6 +590,33 @@ Sessions survive gateway restarts via an encrypted disk store:
 - **Fail-open**: if the file is missing, corrupt, or the key has changed, the gateway starts with an empty session store (users must re-login). No crash, no data leak.
 - **Threat model**: protects session tokens at rest against offline disk access (stolen backup, decommissioned drive). Does not protect against root access to the running process (inherent to any non-HSM system).
 
+### 22.15 Per-User Session Isolation
+
+In hashed credentials mode, chat sessions are isolated per user — each user can only see and modify their own sessions.
+
+#### How It Works
+
+- **`ownerId` field**: every `SessionEntry` gains an optional `ownerId?: string` field. New sessions are stamped with the authenticated username at creation time via `MsgContext.GatewayAuthUser`.
+- **Filtering**: `sessions.list` returns only sessions owned by the current user (or legacy sessions without `ownerId`). Admins see all sessions.
+- **Ownership guards**: `sessions.preview`, `sessions.patch`, `sessions.delete`, `sessions.reset`, `sessions.compact`, `chat.history`, and `chat.send` all verify ownership before proceeding. Unauthorized access returns a `FORBIDDEN` error.
+- **Identity propagation**: `GatewayWsClient.authUser` and `authRole` are populated during the WS handshake from `authResult`, enabling server-side identity checks on every RPC call.
+- **Shared helper**: `auth-identity.ts` provides `resolveAuthIdentity()`, `canSeeAllSessions()`, `assertSessionOwnership()`, and `filterStoreByOwner()` — used across all session and user-data handlers.
+
+#### Migration Policy
+
+| Scenario | Behavior |
+|---|---|
+| Token mode (no `authUser`) | No filtering — fully backward compatible |
+| Admin role | Sees and modifies all sessions |
+| Legacy sessions (no `ownerId`) | Visible to all authenticated users |
+| New sessions (hashed credentials) | Stamped with `ownerId`, only visible to owner + admins |
+| CLI / Node connections | No `authUser` → no filtering |
+
+#### Startup Warning
+
+When `gateway-users.json` exists but auth mode is `token`, a console warning is logged at startup:
+> `gateway-users.json exists but auth mode is 'token'. Per-user session isolation is inactive. Set gateway.auth.mode to 'password' for multi-user authentication.`
+
 ### 22.14 Security Hardening Summary
 
 | Layer                 | Protection                                                               | Details                                                                                     |
@@ -619,6 +646,7 @@ Sessions survive gateway restarts via an encrypted disk store:
 | **Setup wizard**      | First-time admin account creation in Web UI                              | `POST /auth/setup` gated by no-users; rate-limited; auto-login; optional recovery code      |
 | **Password change**   | Settings > Security password change form                                 | `POST /auth/change-password` with scrypt verify; CSRF-protected; inline success/error       |
 | **HTTPS redirect**    | HTTP→HTTPS 301 redirect when TLS enabled                                 | `gateway.tls.httpRedirectPort` spawns plain HTTP server; all requests → `https://`          |
+| **Session isolation** | Per-user session ownership in hashed credentials mode                     | `ownerId` stamping, `FORBIDDEN` on cross-user access, admin bypass, token-mode no-op        |
 
 ---
 
@@ -708,6 +736,6 @@ Sessions survive gateway restarts via an encrypted disk store:
 | Context Menu (⋯)   | None                  | Pin, Archive, Project, Delete via three-dots button |
 | Settings           | Inline in tabs        | Centralized modal with search + visual indicators   |
 | Cross-Browser Sync | None                  | Preferences, projects, files synced via gateway     |
-| Security           | Basic token           | CSP, HSTS, CSRF, timing-safe auth, RBAC scopes      |
+| Security           | Basic token           | CSP, HSTS, CSRF, timing-safe auth, RBAC, session isolation |
 | CSS                | ~2,400 lines          | ~5,800 lines (+3,400)                               |
 | JS Modules         | 127 bundled           | 143+ bundled (+16 new)                              |

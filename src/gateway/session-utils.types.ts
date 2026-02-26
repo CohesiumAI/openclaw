@@ -43,6 +43,7 @@ export type GatewaySessionRow = {
   lastTo?: string;
   lastAccountId?: string;
   linkedSessions?: string[];
+  ownerId?: string;
 };
 
 export type GatewayAgentRow = {

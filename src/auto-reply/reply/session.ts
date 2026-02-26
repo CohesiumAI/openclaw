@@ -360,6 +360,7 @@ export async function initSessionState(params: {
   sessionEntry = {
     ...baseEntry,
     sessionId,
+    ownerId: baseEntry?.ownerId ?? ctx.GatewayAuthUser,
     updatedAt: Date.now(),
     systemSent,
     abortedLastRun,

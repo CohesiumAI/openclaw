@@ -3,8 +3,8 @@
  * Username is resolved from the authenticated session — never from client params.
  */
 
-import type { GatewayWsClient } from "../server/ws-types.js";
-import type { GatewayRequestHandlers, GatewayRequestHandlerOptions } from "./types.js";
+import type { GatewayRequestHandlers } from "./types.js";
+import { resolveAuthIdentity } from "./auth-identity.js";
 import { ErrorCodes, errorShape } from "../protocol/index.js";
 import {
   loadUserPreferences,
@@ -12,17 +12,10 @@ import {
   getUserPreferencesDefaults,
 } from "../user-preferences.js";
 
-/** Resolve the authenticated username from the WS client (set during handshake). */
-function resolveAuthUser(client: GatewayRequestHandlerOptions["client"]): string | null {
-  // authUser is set on the GatewayWsClient during the WS handshake from httpSession.username
-  const wsClient = client as unknown as GatewayWsClient | null;
-  return wsClient?.authUser?.trim() || null;
-}
-
 export const userPreferencesHandlers: GatewayRequestHandlers = {
   /** Return current preferences for the authenticated user. */
   "user.preferences.get": ({ client, respond }) => {
-    const username = resolveAuthUser(client);
+    const username = resolveAuthIdentity(client)?.username;
     if (!username) {
       respond(
         false,
@@ -37,7 +30,7 @@ export const userPreferencesHandlers: GatewayRequestHandlers = {
 
   /** Merge-patch preferences for the authenticated user. */
   "user.preferences.set": ({ params, client, respond }) => {
-    const username = resolveAuthUser(client);
+    const username = resolveAuthIdentity(client)?.username;
     if (!username) {
       respond(
         false,
